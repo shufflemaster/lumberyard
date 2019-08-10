@@ -37,11 +37,6 @@ class QAction;
 class MainWindow;
 class QSharedMemory;
 
-namespace SandboxEditor
-{
-    class StartupTraceHandler;
-}
-
 class SANDBOX_API RecentFileList
 {
 public:
@@ -171,7 +166,7 @@ public:
     // Overrides
     // ClassWizard generated virtual function overrides
 public:
-    virtual BOOL InitInstance(SandboxEditor::StartupTraceHandler* handler);
+    virtual BOOL InitInstance();
     virtual int ExitInstance(int exitCode = 0);
     virtual BOOL OnIdle(LONG lCount);
     virtual CCryEditDoc* OpenDocumentFile(LPCTSTR lpszFileName);
@@ -206,6 +201,7 @@ public:
     void OnAWSGameliftGetStarted();
     void OnAWSGameliftTrialWizard();
     void OnAWSCognitoConsole();
+    void OnAWSDeviceFarmConsole();
     void OnAWSDynamoDBConsole();
     void OnAWSS3Console();
     void OnAWSLambdaConsole();
@@ -246,6 +242,7 @@ public:
     void OnFileExportToGameNoSurfaceTexture();
     void OnEditInsertObject();
     void OnViewSwitchToGame();
+    void OnViewDeploy();
     void OnEditSelectAll();
     void OnEditSelectNone();
     void OnEditDelete();
@@ -322,6 +319,7 @@ public:
     void OnLockSelection();
     void OnEditLevelData();
     void OnFileEditLogFile();
+    void OnFileResaveSlices();
     void OnFileEditEditorini();
     void OnSelectAxisTerrain();
     void OnSelectAxisSnapToAll();
@@ -518,7 +516,6 @@ private:
 #endif
 
     CCryDocManager* m_pDocManager = nullptr;
-    SandboxEditor::StartupTraceHandler* m_traceHandler = nullptr;
 
 private:
     void OnEditHide();

@@ -49,6 +49,7 @@ namespace AssetProcessor
         , private AssetRegistryRequestBus::Handler
         , private AzToolsFramework::AssetSystemRequestBus::Handler
         , private AzToolsFramework::ToolsAssetSystemBus::Handler
+        , private AZ::Data::AssetCatalogRequestBus::Handler
     {
         using NetworkRequestID = AssetProcessor::NetworkRequestID;
         using BaseAssetProcessorMessage = AzFramework::AssetSystem::BaseAssetProcessorMessage;
@@ -94,6 +95,15 @@ namespace AssetProcessor
         bool GetSourceInfoBySourceUUID(const AZ::Uuid& sourceUuid, AZ::Data::AssetInfo& assetInfo, AZStd::string& watchFolder) override;
         bool GetScanFolders(AZStd::vector<AZStd::string>& scanFolders) override;
         bool GetAssetSafeFolders(AZStd::vector<AZStd::string>& assetSafeFolders) override;
+        bool IsAssetPlatformEnabled(const char* platform) override;
+        int GetPendingAssetsForPlatform(const char* platform) override;
+        ////////////////////////////////////////////////////////////////////////////////
+
+        ///////////////////////////////////////////////////////////////////////////
+        // AssetCatalogRequestBus overrides
+        AZStd::string GetAssetPathById(const AZ::Data::AssetId& id) override;
+        AZ::Data::AssetId GetAssetIdByPath(const char* path, const AZ::Data::AssetType& typeToRegister, bool autoRegisterIfNotFound) override;
+        AZ::Data::AssetInfo GetAssetInfoById(const AZ::Data::AssetId& id) override;
         ////////////////////////////////////////////////////////////////////////////////
 
         //////////////////////////////////////////////////////////////////////////
@@ -125,6 +135,9 @@ namespace AssetProcessor
 
         //! Checks in the currently-in-queue assets list for info on an asset (by source name)
         bool GetQueuedAssetInfoByRelativeSourceName(const char* sourceName, AZ::Data::AssetInfo& assetInfo, AZStd::string& watchFolder);
+
+        //! Gets the source info for a source that is not in the DB or APM queue
+        bool GetUncachedSourceInfoFromDatabaseNameAndWatchFolder(const char* sourceDatabasePath, const char* watchFolder, AZ::Data::AssetInfo& assetInfo);
 
         bool ConnectToDatabase();
 

@@ -61,7 +61,11 @@ struct CVars
 #endif
 #define e_PhysOceanCellDefault (0.f)
 #if defined(AZ_RESTRICTED_PLATFORM)
-#include AZ_RESTRICTED_FILE(cvars_h, AZ_RESTRICTED_PLATFORM)
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/cvars_h_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/cvars_h_provo.inl"
+    #endif
 #endif
 #if defined(AZ_RESTRICTED_SECTION_IMPLEMENTED)
 #undef AZ_RESTRICTED_SECTION_IMPLEMENTED
@@ -100,6 +104,7 @@ struct CVars
 #define e_MaxViewDistFullDistCamHeightDefault (1000.f)
 #define e_CoverageBufferOccludersLodRatioDefault (0.25f)
 #define e_LodCompMaxSizeDefault (6.f)
+#define e_LodBoundingBoxDistanceMultiplierDefault (0.1f)
 #define e_MaxViewDistanceDefault (-1.f)
 #define e_ViewDistCompMaxSizeDefault (64.f)
 #define e_ViewDistRatioPortalsDefault (60.f)
@@ -238,6 +243,7 @@ struct CVars
     float e_StreamAutoMipFactorMax;
     int e_CoverageBufferAccurateOBBTest;
     int e_ObjQuality;
+    int e_LightQuality;
     int e_RNTmpDataPoolMaxFrames;
     DeclareConstIntCVar(e_DynamicLightsMaxCount, 512);
     int e_StreamCgfPoolSize;
@@ -402,6 +408,7 @@ struct CVars
     int e_Vegetation;
     float e_TimeOfDaySpeed;
     int e_LodMax;
+    int e_LodForceUpdate;
     DeclareConstFloatCVar(e_ViewDistCompMaxSize);
     DeclareConstFloatCVar(e_TerrainTextureLodRatio);
     float e_ShadowsAdaptScale;
@@ -450,7 +457,6 @@ struct CVars
     float e_DecalsNeighborMaxLifeTime;
     DeclareConstFloatCVar(e_StreamCgfVisObjPriority);
     int e_ObjectLayersActivation;
-    DeclareConstIntCVar(e_DecalsScissor, 1);
     DeclareConstFloatCVar(e_DissolveDistMax);
     DeclareConstFloatCVar(e_DissolveDistMin);
     DeclareConstFloatCVar(e_DissolveDistband);
@@ -467,8 +473,10 @@ struct CVars
     int e_ShadowsUpdateViewDistRatio;
     DeclareConstIntCVar(e_Lods, 1);
     DeclareConstIntCVar(e_LodFaceArea, 1);
+    DeclareConstFloatCVar(e_LodBoundingBoxDistanceMultiplier);
     float e_ShadowsConstBias;
     float e_ShadowsConstBiasHQ;
+    int e_ShadowsClearShowMaskAtLoad;
     int e_ParticlesObjectCollisions;
     int e_ParticlesSortQuality;
     DeclareConstIntCVar(e_Ropes, 1);
@@ -540,6 +548,7 @@ struct CVars
     int e_MergedMeshesDebug;
     int e_MergedMeshesPool;
     int e_MergedMeshesPoolSpines;
+    int e_MergedMeshesMaxVerticesPerSector;
     int e_MergedMeshesTesselationSupport;
     float e_MergedMeshesViewDistRatio;
     float e_MergedMeshesLodRatio;
@@ -552,6 +561,13 @@ struct CVars
     float e_MergedMeshesBulletScale;
     float e_MergedMeshesBulletLifetime;
     int e_MergedMeshesOutdoorOnly;
+    int e_MergedMeshesForceSSE2;
+    int e_MergedMeshesUpdateRateLOD0;
+    int e_MergedMeshesUpdateRateLOD1;
+    int e_MergedMeshesUpdateRateLOD2;
+    int e_MergedMeshesUpdateRateLOD3;
+    int e_MergedMeshesUpdateRateLOD4;
+    int e_MergedMeshesUpdateRateLOD5;
     int e_CheckOctreeObjectsBoxSize;
     DeclareConstIntCVar(e_GeomCaches, 1);
     int e_GeomCacheBufferSize;
@@ -568,4 +584,6 @@ struct CVars
     int e_PermanentRenderObjects;
     int e_StaticInstancing;
     int e_StaticInstancingMinInstNum;
+
+    DeclareConstIntCVar(e_MemoryProfiling, 0);
 };

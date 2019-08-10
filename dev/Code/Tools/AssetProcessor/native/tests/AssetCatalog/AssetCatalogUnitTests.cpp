@@ -17,6 +17,8 @@
 #include <AzToolsFramework/API/EditorAssetSystemAPI.h>
 #include <AzToolsFramework/Asset/AssetProcessorMessages.h>
 
+#include <QCoreApplication>
+
 #include <native/unittests/UnitTestRunner.h> // for UnitTestUtils like CreateDummyFile / AssertAbsorber.
 #include <native/resourcecompiler/RCBuilder.h> // for defines like BUILDER_ID_RC
 
@@ -78,6 +80,12 @@ namespace AssetProcessor
             QString m_gameName;
             AssertAbsorber m_absorber;
             AZStd::string m_databaseLocation;
+            QCoreApplication coreApp;
+            int argc = 0;
+            DataMembers() : coreApp(argc, nullptr)
+            {
+                
+            }
         };
 
         DataMembers* m_data = nullptr;
@@ -270,7 +278,7 @@ namespace AssetProcessor
                 return false;
             }
 
-            SourceDatabaseEntry sourceEntry(scanFolderEntry.m_scanFolderID, sourceRelPath, assetId);
+            SourceDatabaseEntry sourceEntry(scanFolderEntry.m_scanFolderID, sourceRelPath, assetId, "fingerprint1");
             dbConn->SetSource(sourceEntry);
 
             JobDatabaseEntry jobEntry(sourceEntry.m_sourceID, "test", 1234, "pc", assetId, AzToolsFramework::AssetSystem::JobStatus::Completed, 12345);
@@ -756,6 +764,29 @@ namespace AssetProcessor
         EXPECT_TRUE(GetSourceInfoBySourcePath(true, m_customDataMembers->m_assetAFullPath.c_str(), m_customDataMembers->m_assetA.m_guid, m_customDataMembers->m_assetASourceRelPath.c_str(), m_customDataMembers->m_subfolder1AbsolutePath.c_str(), m_customDataMembers->m_assetAType));
     }
 
+    TEST_F(AssetCatalogTest_AssetInfo, FindSource_NotProcessed_NotInQueue_FindsSource)
+    {
+        // Get accurate UUID based on source database name instead of using the one that was randomly generated
+        AZ::Uuid expectedSourceUuid = AssetUtilities::CreateSafeSourceUUIDFromName(m_customDataMembers->m_assetASourceRelPath.c_str());
+
+        // These calls should find the information even though the asset is not in the database and hasn't been queued up yet
+        EXPECT_TRUE(GetSourceInfoBySourcePath(true, m_customDataMembers->m_assetASourceRelPath.c_str(), expectedSourceUuid, m_customDataMembers->m_assetASourceRelPath.c_str(), m_customDataMembers->m_subfolder1AbsolutePath.c_str()));
+        EXPECT_TRUE(GetSourceInfoBySourcePath(true, m_customDataMembers->m_assetAFullPath.c_str(), expectedSourceUuid, m_customDataMembers->m_assetASourceRelPath.c_str(), m_customDataMembers->m_subfolder1AbsolutePath.c_str()));
+    }
+
+    TEST_F(AssetCatalogTest_AssetInfo, FindSource_NotProcessed_NotInQueue_RegisteredAsSourceType_FindsSource)
+    {
+        // Get accurate UUID based on source database name instead of using the one that was randomly generated
+        AZ::Uuid expectedSourceUuid = AssetUtilities::CreateSafeSourceUUIDFromName(m_customDataMembers->m_assetASourceRelPath.c_str());
+
+        // Register as source type
+        AzToolsFramework::ToolsAssetSystemBus::Broadcast(&AzToolsFramework::ToolsAssetSystemRequests::RegisterSourceAssetType, m_customDataMembers->m_assetAType, m_customDataMembers->m_assetAFileFilter.c_str());
+
+        // These calls should find the information even though the asset is not in the database and hasn't been queued up yet
+        EXPECT_TRUE(GetSourceInfoBySourcePath(true, m_customDataMembers->m_assetASourceRelPath.c_str(), expectedSourceUuid, m_customDataMembers->m_assetASourceRelPath.c_str(), m_customDataMembers->m_subfolder1AbsolutePath.c_str(), m_customDataMembers->m_assetAType));
+        EXPECT_TRUE(GetSourceInfoBySourcePath(true, m_customDataMembers->m_assetAFullPath.c_str(), expectedSourceUuid, m_customDataMembers->m_assetASourceRelPath.c_str(), m_customDataMembers->m_subfolder1AbsolutePath.c_str(), m_customDataMembers->m_assetAType));
+    }
+    
 } // namespace AssetProcessor
 
 

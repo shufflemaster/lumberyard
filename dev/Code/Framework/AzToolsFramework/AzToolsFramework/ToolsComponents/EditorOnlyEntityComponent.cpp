@@ -11,6 +11,7 @@
 */
 #include "stdafx.h"
 #include <AzToolsFramework/ToolsComponents/EditorOnlyEntityComponent.h>
+#include <AzToolsFramework/API/ToolsApplicationAPI.h>
 
 #include <AzCore/Serialization/SerializeContext.h>
 #include <AzCore/Serialization/EditContext.h>
@@ -37,7 +38,6 @@ namespace AzToolsFramework
                         ->DataElement(AZ::Edit::UIHandlers::Default, &EditorOnlyEntityComponent::m_isEditorOnly, 
                             "Editor Only", 
                             "Marks the entity for editor-use only. If true, the entity will not be exported for use in runtime contexts (including dynamic slices).")
-                            ->Attribute(AZ::Edit::Attributes::SliceFlags, AZ::Edit::SliceFlags::NotPushableOnSliceRoot)
                         ;
                 }
             }
@@ -95,9 +95,10 @@ namespace AzToolsFramework
         {
             if (isEditorOnly != m_isEditorOnly)
             {
+                AzToolsFramework::ScopedUndoBatch undo("Set IsEditorOnly");
                 m_isEditorOnly = isEditorOnly;
                 EditorOnlyEntityComponentNotificationBus::Broadcast(&EditorOnlyEntityComponentNotificationBus::Events::OnEditorOnlyChanged, GetEntityId(), m_isEditorOnly);
-                SetDirty();
+                undo.MarkEntityDirty(GetEntityId());
             }
         }
 

@@ -1,3 +1,14 @@
+/*
+* All or portions of this file Copyright (c) Amazon.com, Inc. or its affiliates, or 
+* a third party where indicated.
+*
+* For complete copyright and license terms please see the LICENSE at the root of this
+* distribution (the "License"). All use of this software is governed by the License,  
+* or, if provided, by the license below or the license accompanying this file. Do not
+* remove or modify any license notices. This file is distributed on an "AS IS" BASIS,
+* WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.  
+*
+*/
 
 #include "CloudGemDefectReporter_precompiled.h"
 
@@ -13,8 +24,8 @@
 #include <AzFramework/IO/FileOperations.h>
 #include <AzCore/JSON/rapidjson.h>
 #include <AzCore/JSON/document.h>
-#include <AZCore/JSON/stringbuffer.h>
-#include <AZCore/JSON/writer.h>
+#include <AzCore/JSON/stringbuffer.h>
+#include <AzCore/JSON/writer.h>
 
 namespace CloudGemDefectReporter
 {
@@ -418,6 +429,7 @@ namespace CloudGemDefectReporter
 
     void CloudGemDefectReporterSystemComponent::RemoveReport(int reportID)
     {
+        m_reportManager.DeleteReportAttachments(reportID);
         m_reportManager.RemoveReport(reportID);
         int availableReports = m_reportManager.CountCompleteReports();
         int pendingReports = m_reportManager.CountPendingReports();
@@ -446,7 +458,7 @@ namespace CloudGemDefectReporter
         }
     }
 
-        void CloudGemDefectReporterSystemComponent::BackupCompletedReports()
+    void CloudGemDefectReporterSystemComponent::BackupCompletedReports()
     {
         m_reportManager.BackupCompletedReports();
     }
@@ -470,7 +482,7 @@ namespace CloudGemDefectReporter
         CloudGemDefectReporterUINotificationBus::ExecuteQueuedEvents();
 
         if (pendingScreenShots.size() > 0)
-		{
+        {
             ISystem* system = nullptr;
             CrySystemRequestBus::BroadcastResult(system, &CrySystemRequestBus::Events::GetCrySystem);
 

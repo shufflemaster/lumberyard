@@ -104,6 +104,8 @@
             "ILipSyncProvider.h",
             "ILMSerializationManager.h",
             "ILocalizationManager.h",
+            "LocalizationManagerBus.h",
+            "LocalizationManagerBus.inl",
             "ILog.h",
             "ILZ4Decompressor.h",
             "IMaterial.h",
@@ -185,7 +187,6 @@
             "INetworkingState.h",
             "IProximityTriggerSystem.h",
             "MicrophoneBus.h",
-            "NativeUIRequests.h",
             "ParticleParams.h",
             "ParticleParams_info.h",
             "physinterface.h",
@@ -198,7 +199,9 @@
             "VRCommon.h",
             "StereoRendererBus.h",
             "CharacterBoundsBus.h",
-            "ColorGradingBus.h"
+            "ColorGradingBus.h",
+            "HeightmapUpdateNotificationBus.h",
+            "RTTBus.h"	    
         ],
         "Interfaces_h/AI Interfaces":
         [
@@ -388,6 +391,7 @@
             "ProjectDefinesInclude.h",
             "Range.h",
             "RayCastQueue.h",
+            "RenderContextConfig.h",
             "ResourceCompilerHelper.h",
             "RingBuffer.h",
             "ScopeGuard.h",
@@ -514,7 +518,7 @@
             "Console_std.h",
             "CryAssert_Android.h",
             "CryAssert_impl.h",
-            "CryAssert_IOS.h",
+            "CryAssert_iOS.h",
             "CryAssert_Linux.h",
             "CryAssert_Mac.h",
             "CryDLMalloc.h",
@@ -672,7 +676,7 @@
             "LyShine/IDraw2d.h",
             "LyShine/ILyShine.h",
             "LyShine/ISprite.h",
-            "LyShine/IUiRenderer.h",
+            "LyShine/IRenderGraph.h",
             "LyShine/UiAssetTypes.h",
             "LyShine/UiComponentTypes.h",
             "LyShine/UiBase.h",
@@ -690,15 +694,17 @@
             "LyShine/Bus/UiButtonBus.h",
             "LyShine/Bus/UiCanvasBus.h",
             "LyShine/Bus/UiCanvasManagerBus.h",
+            "LyShine/Bus/UiCanvasUpdateNotificationBus.h",
             "LyShine/Bus/UiCheckboxBus.h",
             "LyShine/Bus/UiCursorBus.h",
             "LyShine/Bus/UiDraggableBus.h",
-            "LyShine/Bus/UiDropTargetBus.h",
             "LyShine/Bus/UiDropdownBus.h",
             "LyShine/Bus/UiDropdownOptionBus.h",
+            "LyShine/Bus/UiDropTargetBus.h",
             "LyShine/Bus/UiDynamicLayoutBus.h",
             "LyShine/Bus/UiDynamicScrollBoxBus.h",
             "LyShine/Bus/UiEditorBus.h",
+            "LyShine/Bus/UiEditorCanvasBus.h",
             "LyShine/Bus/UiEditorChangeNotificationBus.h",
             "LyShine/Bus/UiElementBus.h",
             "LyShine/Bus/UiEntityContextBus.h",
@@ -706,6 +712,8 @@
             "LyShine/Bus/UiFlipbookAnimationBus.h",
             "LyShine/Bus/UiGameEntityContextBus.h",
             "LyShine/Bus/UiImageBus.h",
+            "LyShine/Bus/UiImageSequenceBus.h",
+            "LyShine/Bus/UiIndexableImageBus.h",
             "LyShine/Bus/UiInitializationBus.h",
             "LyShine/Bus/UiInteractableActionsBus.h",
             "LyShine/Bus/UiInteractableBus.h",
@@ -720,6 +728,7 @@
             "LyShine/Bus/UiLayoutGridBus.h",
             "LyShine/Bus/UiLayoutManagerBus.h",
             "LyShine/Bus/UiLayoutRowBus.h",
+            "LyShine/Bus/UiMarkupButtonBus.h",
             "LyShine/Bus/UiMaskBus.h",
             "LyShine/Bus/UiNavigationBus.h",
             "LyShine/Bus/UiParticleEmitterBus.h",
@@ -745,6 +754,10 @@
             "LyShine/Bus/UiTransformBus.h",
             "LyShine/Bus/UiUpdateBus.h",
             "LyShine/Bus/UiVisualBus.h"
+        ],
+        "LyShine/Bus/Sprite":
+        [
+            "LyShine/Bus/Sprite/UiSpriteBus.h"
         ],
         "LyShine/Bus/World":
         [
@@ -785,6 +798,12 @@
         "Terrain/Bus":
         [
             "Terrain/Bus/LegacyTerrainBus.h"
+        ],
+
+        "Vegetation":
+        [
+            "Vegetation/StaticVegetationBus.h",
+            "Vegetation/MapHandle.h"
         ],
 
         "CryAction": [

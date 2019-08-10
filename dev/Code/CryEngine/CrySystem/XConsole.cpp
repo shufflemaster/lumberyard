@@ -359,7 +359,6 @@ CXConsole::CXConsole()
     m_nProgress = 0;
     m_nProgressRange = 0;
     m_nLoadingBackTexID = 0;
-    m_nWhiteTexID = 0;
 
     m_deferredExecution = false;
     m_waitFrames = 0;
@@ -369,6 +368,7 @@ CXConsole::CXConsole()
     CNotificationNetworkConsole::Initialize();
 
     AzFramework::ConsoleRequestBus::Handler::BusConnect();
+    AzFramework::CommandRegistrationBus::Handler::BusConnect();
 
     AddCommand("resetcvars", (ConsoleCommandFunc)ResetCVars, 0, "Resets all cvars to their initial values");
 }
@@ -378,6 +378,7 @@ CXConsole::CXConsole()
 CXConsole::~CXConsole()
 {
     AzFramework::ConsoleRequestBus::Handler::BusDisconnect();
+    AzFramework::CommandRegistrationBus::Handler::BusDisconnect();
 
     if (gEnv->pSystem)
     {
@@ -406,11 +407,6 @@ void CXConsole::FreeRenderResources()
         {
             m_pRenderer->RemoveTexture(m_nLoadingBackTexID);
             m_nLoadingBackTexID = -1;
-        }
-        if (m_nWhiteTexID)
-        {
-            m_pRenderer->RemoveTexture(m_nWhiteTexID);
-            m_nWhiteTexID = -1;
         }
         if (m_pImage)
         {
@@ -543,23 +539,11 @@ void CXConsole::Init(ISystem* pSystem)
 
     // ----------------------------------------------------------
 
-    m_nWhiteTexID = -1;
-    if ((m_pRenderer) && (!gEnv->IsInToolMode()))
-    {
-        ITexture* pTex = 0;
-
-        // This texture is already loaded by the renderer. It's ref counted so there is no wasted space.
-        pTex = pSystem->GetIRenderer()->EF_LoadTexture("EngineAssets/Textures/White.dds", FT_DONT_STREAM | FT_DONT_RELEASE);
-        if (pTex)
-        {
-            m_nWhiteTexID = pTex->GetTextureID();
-        }
-    }
-    else
+    if (!m_pRenderer || gEnv->IsInToolMode())
     {
         m_nLoadingBackTexID = -1;
-        m_nWhiteTexID = -1;
     }
+
     if (gEnv->IsDedicated())
     {
         m_bConsoleActive = true;
@@ -1366,23 +1350,29 @@ bool CXConsole::OnInputChannelEventFiltered(const AzFramework::InputChannel& inp
     }
     if (channelId == AzFramework::InputDeviceKeyboard::Key::Escape)
     {
+        // hide console if it's active
+        if (GetStatus())
+        {
+            ShowConsole(false);
+            m_bIsConsoleKeyPressed = true;
+            return true;
+        }
+
         //switch process or page or other things
         if (m_pSystem)
         {
-            ShowConsole(false);
-
             ISystemUserCallback* pCallback = ((CSystem*)m_pSystem)->GetUserCallback();
             if (pCallback)
             {
                 pCallback->OnProcessSwitch();
+                m_bIsConsoleKeyPressed = true;
+                // Mark this input as handled. Pressing escape here is used in the editor to exit game mode, and return to edit mode.
+                // If AI/Physics mode was enabled before entering game mode, when returning to edit mode it will be enabled again.
+                // When it is enabled, it will reset input. If this returns false, then other handlers on the ebus would continue to process
+                // input events after the input had been reset. By returning true, the input is marked as handled.
+                return true;
             }
         }
-        m_bIsConsoleKeyPressed = true;
-        // Mark this input as handled. Pressing escape here is used in the editor to exit game mode, and return to edit mode.
-        // If AI/Physics mode was enabled before entering game mode, when returning to edit mode it will be enabled again.
-        // When it is enabled, it will reset input. If this returns false, then other handlers on the ebus would continue to process
-        // input events after the input had been reset. By returning true, the input is marked as handled.
-        return true;
     }
 
     return ProcessInput(inputChannel);
@@ -1663,10 +1653,12 @@ void CXConsole::Draw()
 
         if (!m_nProgressRange)
         {
+            int whiteTexId = gEnv->pRenderer ? gEnv->pRenderer->GetWhiteTextureId() : -1;
+
             if (m_bStaticBackground)
             {
                 m_pRenderer->SetState(GS_NODEPTHTEST);
-                m_pRenderer->Draw2dImage(0, 0, 800, 600, m_pImage ? m_pImage->GetTextureID() : m_nWhiteTexID, 0.0f, 1.0f, 1.0f, 0.0f);
+                m_pRenderer->Draw2dImage(0, 0, 800, 600, m_pImage ? m_pImage->GetTextureID() : whiteTexId, 0.0f, 1.0f, 1.0f, 0.0f);
             }
             else
             {
@@ -1679,8 +1671,8 @@ void CXConsole::Draw()
                 float fSizeY = m_nTempScrollMax * m_pRenderer->GetHeight() / fReferenceSize;
 
                 m_pRenderer->SetState(GS_NODEPTHTEST | GS_BLSRC_SRCALPHA | GS_BLDST_ONEMINUSSRCALPHA);
-                m_pRenderer->DrawImage(0, 0, fSizeX, fSizeY, m_nWhiteTexID, 0.0f, 0.0f, 1.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0.7f);
-                m_pRenderer->DrawImage(0, fSizeY, fSizeX, 2.0f * m_pRenderer->GetHeight() / fReferenceSize, m_nWhiteTexID, 0, 0, 0, 0, 0.0f, 0.0f, 0.0f, 1.0f);
+                m_pRenderer->DrawImage(0, 0, fSizeX, fSizeY, whiteTexId, 0.0f, 0.0f, 1.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0.7f);
+                m_pRenderer->DrawImage(0, fSizeY, fSizeX, 2.0f * m_pRenderer->GetHeight() / fReferenceSize, whiteTexId, 0, 0, 0, 0, 0.0f, 0.0f, 0.0f, 1.0f);
 
                 m_pRenderer->Unset2DMode(backupSceneMatrices);
             }
@@ -2342,6 +2334,8 @@ void CXConsole::SplitCommands(const char* line, std::list<string>& split)
 //////////////////////////////////////////////////////////////////////////
 void CXConsole::ExecuteStringInternal(const char* command, const bool bFromConsole, const bool bSilentMode)
 {
+    AzFramework::ConsoleNotificationBus::Broadcast(&AzFramework::ConsoleNotificationBus::Events::OnConsoleCommandExecuted, command);
+
     assert(command);
     assert(command[0] != '\\');           // caller should remove leading "\\"
 
@@ -4037,6 +4031,108 @@ void CXConsole::OnAfterVarChange(ICVar* pVar)
             (*it)->OnAfterVarChange(pVar);
         }
     }
+}
+
+//////////////////////////////////////////////////////////////////////////
+void CXConsole_ExecuteCommandTrampoline(IConsoleCmdArgs* args)
+{
+    if (gEnv && gEnv->pSystem && gEnv->pSystem->GetIConsole())
+    {
+        CXConsole* pConsole = static_cast<CXConsole*>(gEnv->pSystem->GetIConsole());
+        pConsole->ExecuteRegisteredCommand(args);
+    }
+}
+
+//////////////////////////////////////////////////////////////////////////
+void CXConsole::ExecuteRegisteredCommand(IConsoleCmdArgs* args)
+{
+    if (args->GetArgCount() == 0)
+    {
+        AZ_Error("console", false, "Invalid number of args sent");
+        return;
+    }
+
+    const char* commandIdentifier = args->GetArg(0);
+    auto itCommandEntry = m_commandRegistrationMap.find(commandIdentifier);
+    if (itCommandEntry == m_commandRegistrationMap.end())
+    {
+        AZ_Error("console", false, "Command %s not found in the command registry", commandIdentifier);
+        return;
+    }
+    
+    AZStd::vector<AZStd::string_view> input;
+    input.reserve(args->GetArgCount());
+    for (int i = 0; i < args->GetArgCount(); ++i)
+    {
+        input.push_back(args->GetArg(i));
+    }
+
+    CommandRegistrationEntry& entry = itCommandEntry->second;
+    const AzFramework::CommandResult output = entry.m_callback(input);
+    if (output != AzFramework::CommandResult::Success)
+    {
+        if (output == AzFramework::CommandResult::ErrorWrongNumberOfArguements)
+        {
+            AZ_Warning("console", false, "Command does not have the right number of arguments (send = %d)", input.size());
+        }
+        else
+        {
+            AZ_Warning("console", false, "Command returned a generic error");
+        }
+    }
+}
+
+//////////////////////////////////////////////////////////////////////////
+bool CXConsole::RegisterCommand(AZStd::string_view identifier, AZStd::string_view helpText, AZ::u32 commandFlags, AzFramework::CommandFunction callback)
+{
+    if (identifier.empty())
+    {
+        AZ_Error("console", false, "RegisterCommand() requires a valid identifier");
+        return false;
+    }
+
+    if (!callback)
+    {
+        AZ_Error("console", false, "RegisterCommand() requires a valid callback");
+        return false;
+    }
+
+    if (m_commandRegistrationMap.find(identifier) != m_commandRegistrationMap.end())
+    {
+        AZ_Warning("console", false, "Command '%.*s' already found in the command registry.", static_cast<int>(identifier.size()), identifier.data());
+        return false;
+    }
+
+    // command flags should match "enum EVarFlags" values
+    const int flags = static_cast<int>(commandFlags);
+
+    CommandRegistrationEntry entry;
+    entry.m_callback = callback;
+    entry.m_id = identifier;
+    if (!helpText.empty())
+    {
+        entry.m_helpText = helpText;
+    }
+
+    if (!AddCommand(entry.m_id.c_str(), CXConsole_ExecuteCommandTrampoline, flags, entry.m_helpText.empty() ? nullptr : entry.m_helpText.c_str()))
+    {
+        AZ_Warning("console", false, "Command %s already found in the command registry.", entry.m_id.c_str());
+        return false;
+    }
+
+    m_commandRegistrationMap.insert(AZStd::make_pair(entry.m_id, entry));
+    return true;
+}
+
+//////////////////////////////////////////////////////////////////////////
+bool CXConsole::UnregisterCommand(AZStd::string_view identifier)
+{
+    if (m_commandRegistrationMap.erase(identifier) == 1)
+    {
+        RemoveCommand(identifier.data());
+        return true;
+    }
+    return false;
 }
 
 //////////////////////////////////////////////////////////////////////////

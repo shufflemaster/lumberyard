@@ -12,18 +12,24 @@
 #ifndef AZCORE_SERIALIZE_CONTEXT_H
 #define AZCORE_SERIALIZE_CONTEXT_H
 
+#include <AzCore/Asset/AssetCommon.h>
+
+#include <AzCore/Memory/OSAllocator.h>
 #include <AzCore/Memory/SystemAllocator.h>
 
+#include <AzCore/std/containers/unordered_set.h>
 #include <AzCore/std/containers/unordered_map.h>
 #include <AzCore/std/string/string.h>
 #include <AzCore/std/string/string_view.h>
-#include <AzCore/std/function/function_fwd.h>
 
+#include <AzCore/std/typetraits/disjunction.h>
 #include <AzCore/std/typetraits/is_pointer.h>
 #include <AzCore/std/typetraits/is_abstract.h>
+#include <AzCore/std/typetraits/negation.h>
 #include <AzCore/std/typetraits/remove_pointer.h>
 #include <AzCore/std/typetraits/is_base_of.h>
 #include <AzCore/std/any.h>
+#include <AzCore/std/parallel/atomic.h>
 
 #include <AzCore/std/functional.h>
 
@@ -76,15 +82,10 @@ namespace AZ
         T StaticInstance<T>::s_instance;
     }
 
-    namespace Data
-    {
-        class AssetData;
-
-        template<typename T>
-        class Asset;
-
-        typedef AZStd::function<bool(const Data::Asset<Data::AssetData>& asset)> AssetFilterCB;
-    }
+    using AttributePtr = AZStd::shared_ptr<Attribute>;
+    using AttributeSharedPair = AZStd::pair<AttributeId, AttributePtr>;
+    template <typename ContainerType, typename T>
+    AttributePtr CreateModuleAttribute(T&& attrValue);
 
     /**
      * Serialize context is a class that manages information
@@ -115,6 +116,7 @@ namespace AZ
         class IDataSerializer;
         class IDataContainer;
         class IEventHandler;
+        class IDataConverter;
 
         AZ_CLASS_ALLOCATOR(SerializeContext, SystemAllocator, 0);
         AZ_RTTI(SerializeContext, "{83482F97-84DA-4FD4-BF9E-7FE34C8E091F}", ReflectContext);
@@ -135,6 +137,8 @@ namespace AZ
         SerializeContext(bool registerIntegralTypes = true, bool createEditContext = false);
         virtual ~SerializeContext();
 
+        bool IsTypeReflected(AZ::Uuid typeId) const override;
+
         /// Create an edit context for this serialize context. If one already exist it will be returned.
         EditContext*    CreateEditContext();
         /// Destroys the internal edit context, all edit related data will be freed. You don't have call DestroyEditContext, it's called when you destroy the serialize context.
@@ -148,27 +152,19 @@ namespace AZ
         * For details about what can you expose in a class and what options you have \ref SerializeContext::ClassBuilder
         * @{
         */
-        template<class T>
-        ClassBuilder    Class();
-        template<class T, class B1>
-        ClassBuilder    Class();
-        template<class T, class B1, class B2>
-        ClassBuilder    Class();
-        template<class T, class B1, class B2, class B3>
+        template<class T, class... TBaseClasses>
         ClassBuilder    Class();
 
         /**
          * When a default object factory can't be used, example a singleton class with private constructors or non default constructors
          * you will have to provide a custom factory.
          */
-        template<class T>
+        template<class T, class... TBaseClasses>
         ClassBuilder    Class(IObjectFactory* factory);
-        template<class T, class B1>
-        ClassBuilder    Class(IObjectFactory* factory);
-        template<class T, class B1, class B2>
-        ClassBuilder    Class(IObjectFactory* factory);
-        template<class T, class B1, class B2, class B3>
-        ClassBuilder    Class(IObjectFactory* factory);
+
+        // Helper method that gets the generic info of ValueType and calls Reflect on it, should it exist
+        template <class ValueType>
+        void RegisterGenericType();
 
         // Deprecate a previously reflected class so that on load any instances will be silently dropped without the need
         // to keep the original class around.
@@ -245,11 +241,14 @@ namespace AZ
 
         /**
          * Call this function to traverse an instance's hierarchy by providing address and classId, if you have the typed pointer you can just call \ref EnumerateObject
-         * \param callContext enumerate call context
          * \param ptr pointer to the object for traversal
          * \param classId classId of object for traversal
+         * \param beginElemCB callback when we begin/open a child element
+         * \param endElemCB callback when we end/close a child element
+         * \param accessFlags \ref EnumerationAccessFlags
          * \param classData pointer to the class data for the traversed object to avoid calling FindClassData(classId) (can be null)
          * \param classElement pointer to class element (null for root elements)
+         * \param errorHandler optional pointer to the error handler.
          */
         bool EnumerateInstanceConst(EnumerateInstanceCallContext* callContext, const void* ptr, const Uuid& classId, const ClassData* classData, const ClassElement* classElement) const;
         bool EnumerateInstance(EnumerateInstanceCallContext* callContext, void* ptr, const Uuid& classId, const ClassData* classData, const ClassElement* classElement) const;
@@ -300,7 +299,22 @@ namespace AZ
                 FLG_BASE_CLASS          = (1 << 1),       ///< Set if the element is a base class of the holding class.
                 FLG_NO_DEFAULT_VALUE    = (1 << 2),       ///< Set if the class element can't have a default value.
                 FLG_DYNAMIC_FIELD       = (1 << 3),       ///< Set if the class element represents a dynamic field (DynamicSerializableField::m_data).
+                FLG_UI_ELEMENT          = (1 << 4),       ///< Set if the class element represents a UI element tied to the ClassData of its parent.
             };
+
+            enum class AttributeOwnership
+            {
+                Parent, // Attributes should be deleted when the ClassData containing us is destroyed
+                Self,   // Attributes should be deleted when we are destroyed
+                None,   // Attributes should never be deleted by us, their lifetime is managed somewhere else
+            };
+
+            ~ClassElement();
+
+            ClassElement& operator=(const ClassElement& other);
+
+            void ClearAttributes();
+            Attribute* FindAttribute(AttributeId attributeId) const;
 
             const char* m_name;                     ///< Used in XML output and debugging purposes
             u32 m_nameCrc;                          ///< CRC32 of m_name
@@ -311,7 +325,12 @@ namespace AZ
             IRttiHelper* m_azRtti;                  ///< Interface used to support RTTI.
             GenericClassInfo* m_genericClassInfo = nullptr;   ///< Valid when the generic class is set. So you don't search for the actual type in the class register.
             Edit::ElementData* m_editData;          ///< Pointer to edit data (generated by EditContext).
-            AttributeArray m_attributes; ///< Attributes attached to ClassElement
+            AZStd::vector<AttributeSharedPair, AZStdFunctorAllocator> m_attributes{
+                AZStdFunctorAllocator([]() -> IAllocatorAllocate& { return AZ::AllocatorInstance<AZ::SystemAllocator>::Get(); })
+            }; ///< Attributes attached to ClassElement. Lambda is required here as AZStdFunctorAllocator expects a function pointer
+               ///< that returns an IAllocatorAllocate& and the AZ::AllocatorInstance<AZ::SystemAllocator>::Get returns an AZ::SystemAllocator&
+               /// which while it inherits from IAllocatorAllocate, does not work as function pointers do not support covariant return types
+            AttributeOwnership m_attributeOwnership = AttributeOwnership::Parent;
             int m_flags;    ///<
         };
         typedef AZStd::vector<ClassElement> ClassElementArray;
@@ -330,6 +349,17 @@ namespace AZ
 
             bool    IsDeprecated() const { return m_version == VersionClassDeprecated; }
             void    ClearAttributes();
+            Attribute* FindAttribute(AttributeId attributeId) const;
+            ///< Checks if the supplied typeid can be converted to an instance of the class represented by this Class Data
+            ///< @param convertibleTypeId type to check to determine if it can converted to an element of class represent by this Class Data
+            ///< @return if the classData can store the convertible type element true is returned
+            bool CanConvertFromType(const TypeId& convertibleTypeId, AZ::SerializeContext& serializeContext) const;
+            ///< Retrieves a memory address that can be used store an element of the convertible type
+            ///< @param resultPtr output parameter that is populated with the memory address that can be used to store an element of the convertible type
+            ///< @param convertibleTypeId type to check to determine if it can converted to an element of class represent by this Class Data
+            ///< @param classPtr memory address of the class represented by the ClassData
+            ///< @return true if a non-null memory address has been returned that can store the  convertible type 
+            bool ConvertFromType(void*& convertibleTypePtr, const TypeId& convertibleTypeId, void* classPtr, AZ::SerializeContext& serializeContext) const;
 
             /// Find the persistence id (check base classes) \todo this is a TEMP fix, analyze and cache that information in the class
             ClassPersistentId GetPersistentId(const SerializeContext& context) const;
@@ -346,15 +376,25 @@ namespace AZ
 
             IDataContainer*     m_container;        ///< Interface if this class represents a data container. Data will be accessed using this interface.
             IRttiHelper*        m_azRtti;           ///< Interface used to support RTTI. Set internally based on type provided to Class<T>.
+            IDataConverter*     m_dataConverter{};    ///< Interface used to convert unrelated types to elements of this class
 
             Edit::ClassData*    m_editData;         ///< Edit data for the class display.
             ClassElementArray   m_elements;         ///< Sub elements. If this is not empty m_serializer should be NULL (there is no point to have sub-elements, if we can serialize the entire class).
 
-            AttributeArray      m_attributes;       ///< Attributes for this class type.
+            ///< Attributes for this class type. Lambda is required here as AZStdFunctorAllocator expects a function pointer
+            ///< that returns an IAllocatorAllocate& and the AZ::AllocatorInstance<AZ::SystemAllocator>::Get returns an AZ::SystemAllocator&
+            /// which while it inherits from IAllocatorAllocate, does not work as function pointers do not support covariant return types
+            AZStd::vector<AttributeSharedPair, AZStdFunctorAllocator> m_attributes{AZStdFunctorAllocator(&GetSystemAllocator) };
+
+        private:
+            static IAllocatorAllocate& GetSystemAllocator()
+            {
+                return AZ::AllocatorInstance<AZ::SystemAllocator>::Get();
+            }
         };
 
         /**
-         * Interface for creating and detroying object from the serializer.
+         * Interface for creating and destroying object from the serializer.
          */
         class IObjectFactory
         {
@@ -367,6 +407,10 @@ namespace AZ
 
             /// Called to destroy an instance of an object
             virtual void  Destroy(void* ptr) = 0;
+            void Destroy(const void* ptr)
+            {
+                Destroy(const_cast<void*>(ptr));
+            }
         };
 
         /**
@@ -395,6 +439,9 @@ namespace AZ
             /// \return true if they match.
             /// Note: Input pointers are assumed to point to valid instances of the class.
             virtual bool    CompareValueData(const void* lhs, const void* rhs) = 0;
+
+            /// Optional post processing of the cloned data to deal with members that are not serialize-reflected.
+            virtual void PostClone(void* /*classPtr*/) {}
         };
 
         /**
@@ -422,6 +469,44 @@ namespace AZ
             typedef AZStd::function< bool (void* /* instance pointer */, const Uuid& /*elementClassId*/, const ClassData* /* elementGenericClassData */, const ClassElement* /* genericClassElement */) > ElementCB;
             virtual ~IDataContainer() {}
 
+            /// Mix-in for associative container actions, implement or provide this to offer key/value actions
+            class IAssociativeDataContainer
+            {
+            protected:
+                /// Reserve a key and get its address. Used by CreateKey.
+                virtual void*   AllocateKey() = 0;
+                /// Deallocates a key created by ReserveKey. Used by CreateKey.
+                virtual void    FreeKey(void* key) = 0;
+
+            public:
+                virtual ~IAssociativeDataContainer() {}
+
+                struct KeyPtrDeleter
+                {
+                    KeyPtrDeleter(IAssociativeDataContainer* associativeDataContainer)
+                        : m_associativeDataContainer(associativeDataContainer)
+                    {}
+
+                    void operator()(void* key)
+                    {
+                        m_associativeDataContainer->FreeKey(key);
+                    }
+                    IAssociativeDataContainer* m_associativeDataContainer{};
+
+                };
+                using KeyPtr = AZStd::unique_ptr<void, KeyPtrDeleter>;
+
+                /// Reserve a key that can be used for associative container operations.
+                KeyPtr CreateKey()
+                {
+                    return KeyPtr(AllocateKey(), KeyPtrDeleter(this));
+                }
+                /// Get an element's address by its key. Not used for serialization.
+                virtual void*   GetElementByKey(void* instance, const ClassElement* classElement, void* key) = 0;
+                /// Populates element with key (for associative containers). Not used for serialization.
+                virtual void    SetElementKey(void* element, void* key) = 0;
+            };
+
             /// Return default element generic name (used by most containers).
             static inline const char*   GetDefaultElementName()     { return "element"; }
             /// Return default element generic name crc (used by most containers).
@@ -446,7 +531,9 @@ namespace AZ
             virtual bool    IsSmartPointer() const = 0;
             /// Returns true if elements can be retrieved by index.
             virtual bool    CanAccessElementsByIndex() const = 0;
-            /// Reserve an element and get it's address (called before the element is loaded).
+            /// Returns the associative interface for this container (e.g. the container itself if it inherits it) if available, otherwise null.
+            virtual IAssociativeDataContainer* GetAssociativeContainerInterface() { return nullptr; }
+            /// Reserve an element and get its address (called before the element is loaded).
             virtual void*   ReserveElement(void* instance, const ClassElement* classElement) = 0;
             /// Get an element's address by its index (called before the element is loaded).
             virtual void*   GetElementByIndex(void* instance, const ClassElement* classElement, size_t index) = 0;
@@ -463,11 +550,11 @@ namespace AZ
             /// Clear elements in the instance. If deletePointerDataContext is NOT null, this indicated that you want the remove function to delete/destroy any Elements that are pointer!
             virtual void    ClearElements(void* instance, SerializeContext* deletePointerDataContext) = 0;
             /// Called when elements inside the container have been modified.
-            virtual void    ElementsUpdated(void* instance) { (void)instance; }
+            virtual void    ElementsUpdated(void* instance);
 
         protected:
             /// Free element data (when the class elements are pointers).
-            void DeletePointerData(SerializeContext* context, const ClassElement* classElement, void* element);
+            void DeletePointerData(SerializeContext* context, const ClassElement* classElement, const void* element);
         };
 
         /**
@@ -487,12 +574,57 @@ namespace AZ
             /// Called right before we start writing to the instance pointed by classPtr.
             virtual void OnWriteBegin(void* classPtr) { (void)classPtr; }
             /// Called after we are done writing to the instance pointed by classPtr.
+            /// NOTE: Care must be taken when using this callback. It is called when ID remapping occurs,
+            /// an instance is clone or an instance is loaded from an objectstream.
+            /// This means that this function can be invoked multiple times in the course of serializing a new instance from an ObjectStream
+            /// or cloning an object.
             virtual void OnWriteEnd(void* classPtr) { (void)classPtr; }
 
             /// Called right before we start data patching the instance pointed by classPtr.
             virtual void OnPatchBegin(void* classPtr, const DataPatchNodeInfo& patchInfo) { (void)classPtr; (void)patchInfo; }
             /// Called after we are done data patching the instance pointed by classPtr.
             virtual void OnPatchEnd(void* classPtr, const DataPatchNodeInfo& patchInfo) { (void)classPtr; (void)patchInfo; }
+
+            /// Called after an instance has been loaded in ObjectStream::LoadClass
+            virtual void OnLoadedFromObjectStream(void* classPtr) { (void)classPtr; }
+            /// Called after an object is cloned in SerializeContext::EndCloneObject
+            virtual void OnObjectCloned(void* classPtr) { (void)classPtr; }
+        };
+
+        /**
+         * Data Converter interface which can be used to provide a conversion operation from to unrelated C++ types
+         * derived class to base class casting is taken care of through the RTTI system so those relations should not be 
+         * check within this class
+         */
+        class IDataConverter
+        {
+        public:
+            virtual ~IDataConverter() = default;
+            ///< Callback to determine if the supplied convertible type can be stored in an instance of classData
+            ///< @param convertibleTypeId type to check to determine if it can converted to an element of class represent by this Class Data
+            ///< @param classData reference to the metadata representing the type stored in classPtr
+            ///< @return if the classData can store the convertible type element true is returned
+            virtual bool CanConvertFromType (const TypeId& convertibleTypeId, const SerializeContext::ClassData& classData, SerializeContext& /*serializeContext*/)
+            {
+                return classData.m_typeId == convertibleTypeId;
+            }
+
+            ///< Callback that can be used to retrieve a memory address in which to store an element of the supplied convertible type
+            ///< @param convertibleTypePtr result pointer that should be populated with an address that can store an element of the convertible type
+            ///< @param convertibleTypeId type to check to determine if it can converted to an element of class represent by this Class Data
+            ///< @param classPtr memory address of the class represented by the @classData type
+            ///< @param classData reference to the metadata representing the type stored in classPtr
+            ///< @return true if a non-null memory address has been returned that can store the convertible type 
+            virtual bool ConvertFromType(void*& convertibleTypePtr, const TypeId& convertibleTypeId, void* classPtr, const SerializeContext::ClassData& classData, SerializeContext& /*serializeContext*/)
+            {
+                if (classData.m_typeId == convertibleTypeId)
+                {
+                    convertibleTypePtr = classPtr;
+                    return true;
+                }
+
+                return false;
+            }
         };
 
         /**
@@ -566,6 +698,9 @@ namespace AZ
             template <typename T>
             bool GetDataHierarchy(SerializeContext&, T& value, ErrorHandler* errorHandler = nullptr);
 
+            template <typename T>
+            bool FindSubElementAndGetData(AZ::Crc32 crc, T& outValue);
+
             /**
              * Converts current DataElementNode from one type to another.
              * Keep in mind that if the new "type" has sub-elements (not leaf - serialized element)
@@ -630,10 +765,10 @@ namespace AZ
         // @}
 
         /**
-         * Storage for persistent parameters passed to a root EnumerateInstance pass.
-         * EnumerateInstance is used in high frequency performance-sensitive scenarios, and this ensures
-         * minimal interaction with the memory manager for things like bound functors.
-         */
+        * Storage for persistent parameters passed to a root EnumerateInstance pass.
+        * EnumerateInstance is used in high frequency performance-sensitive scenarios, and this ensures
+        * minimal interaction with the memory manager for things like bound functors.
+        */
         struct EnumerateInstanceCallContext
         {
             EnumerateInstanceCallContext(const BeginElemEnumCB& beginElemCB, const EndElemEnumCB& endElemCB, const SerializeContext* context, unsigned int accessflags, ErrorHandler* errorHandler);
@@ -655,15 +790,17 @@ namespace AZ
         AZStd::vector<AZ::Uuid> FindClassId(const AZ::Crc32& classNameCrc) const;
 
         /// Find GenericClassData data based on the supplied class ID
-        GenericClassInfo* FindGenericClassInfo(const Uuid& classId) const;
+        GenericClassInfo* FindGenericClassInfo(const Uuid& classId) const; 
 
-        /// Find GenericClassData data based on the supplied class ID
+        /// Creates an AZStd::any based on the provided class Uuid, or returns an empty AZStd::any if no class data is found or the class is virtual
         AZStd::any CreateAny(const Uuid& classId);
 
         /// Register GenericClassInfo with the SerializeContext
         using CreateAnyFunc = AZStd::any(*)(SerializeContext*);
         void RegisterGenericClassInfo(const AZ::Uuid& typeId, GenericClassInfo* genericClassInfo, const CreateAnyFunc& createAnyFunc);
 
+        /// Unregisters all GenericClassInfo instances registered in the current module and deletes the GenericClassInfo instances
+        void CleanupModuleGenericClassInfo();
 
         /**
          * Checks if a type can be downcast to another using Uuid and AZ_RTTI.
@@ -687,12 +824,25 @@ namespace AZ
         T Cast(void* instance, const Uuid& instanceClassId) const;
 
     private:
-        
+        /**
+         * Generic enumerate function can can take both 'const void*' and 'void*' data pointer types.
+         */
+        template<class PtrType, class EnumType>
+        bool EnumerateInstanceTempl(PtrType ptr, const Uuid& classId, EnumType beginElemCB, const SerializeContext::EndElemEnumCB& endElemCB, const ClassData* classData, const char* elementName, const ClassElement* classElement);
+
         /// Enumerate function called to enumerate an azrtti hierarchy
         static void EnumerateBaseRTTIEnumCallback(const Uuid& id, void* userData);
 
         /// Remove class data
         void RemoveClassData(ClassData* classData);
+        /// Removes the GenericClassInfo from the GenericClassInfoMap
+        void RemoveGenericClassInfo(GenericClassInfo* genericClassInfo);
+
+        /// Adds class data, including base class element data
+        template<class T, class BaseClass>
+        void AddClassData(ClassData* classData, size_t index);
+        template<class T, class...TBaseClasses>
+        void AddClassData(ClassData* classData);
 
         /// Object cloning callbacks.
         bool BeginCloneElement(void* ptr, const ClassData* classData, const ClassElement* elementData, void* stackData, ErrorHandler* errorHandler, AZStd::vector<char>* scratchBuffer);
@@ -725,7 +875,7 @@ namespace AZ
             }
             SerializeContext*           m_context;
             UuidToClassMap::iterator    m_classData;
-            AttributeArray*             m_currentAttributes = nullptr;
+            AZStd::vector<AttributeSharedPair, AZStdFunctorAllocator>* m_currentAttributes = nullptr;
         public:
             ~ClassBuilder();
             ClassBuilder* operator->()  { return this; }
@@ -822,9 +972,17 @@ namespace AZ
         EditContext*    m_editContext;  ///< Pointer to optional edit context.
         UuidToClassMap  m_uuidMap;      ///< Map for all class in this serialize context
         AZStd::unordered_multimap<AZ::Crc32, AZ::Uuid> m_classNameToUuid;  /// Map all class names to their uuid
-        AZStd::unordered_map<Uuid, GenericClassInfo*>  m_uuidGenericMap;      ///< Uuid to ClassData map of reflected classes with GenericTypeInfo
+        AZStd::unordered_multimap<Uuid, GenericClassInfo*>  m_uuidGenericMap;      ///< Uuid to ClassData map of reflected classes with GenericTypeInfo
+        AZStd::unordered_multimap<Uuid, Uuid> m_legacySpecializeTypeIdToTypeIdMap; ///< Keep a map of old legacy specialized typeids of template classes to new specialized typeids
         AZStd::unordered_map<Uuid, CreateAnyFunc>  m_uuidAnyCreationMap;      ///< Uuid to Any creation function map
+
+        class PerModuleGenericClassInfo;
+        AZStd::unordered_set<PerModuleGenericClassInfo*>  m_perModuleSet; ///< Stores the static PerModuleGenericClass structures keeps track of reflected GenericClassInfo per module
+
+        friend PerModuleGenericClassInfo& GetCurrentSerializeContextModule();
     };
+
+    SerializeContext::PerModuleGenericClassInfo& GetCurrentSerializeContextModule();
 
     /**
     * Base class that will provide various information for a generic entry.
@@ -839,6 +997,9 @@ namespace AZ
     class GenericClassInfo
     {
     public:
+        GenericClassInfo()
+        { }
+
         virtual ~GenericClassInfo() {}
 
         /// Return the generic class "class Data" independent from the underlaying templates
@@ -858,7 +1019,11 @@ namespace AZ
         virtual void Reflect(SerializeContext*) = 0;
 
         /// Returns true if the generic class can store the supplied type
-        virtual bool CanStoreType(const Uuid& typeId) const { return GetSpecializedTypeId() == typeId || GetGenericTypeId() == typeId; }
+        virtual bool CanStoreType(const Uuid& typeId) const { return GetSpecializedTypeId() == typeId || GetGenericTypeId() == typeId || GetLegacySpecializedTypeId() == typeId; }
+
+        /// Returns the legacy specialized type id which removed the pointer types from templates when calculating type ids.
+        /// i.e Typeids for AZStd::vector<AZ::Entity> and AZStd::vector<AZ::Entity*> are the same for legacy ids
+        virtual const Uuid& GetLegacySpecializedTypeId() const { return GetSpecializedTypeId(); }
     };
 
     /**
@@ -877,6 +1042,10 @@ namespace AZ
     template<class ValueType>
     struct SerializeGenericTypeInfo
     {
+        // Provides a specific type alias that can be used to create GenericClassInfo of the 
+        // specified type. By default this is GenericClassInfo class which is abstract
+        using ClassInfoType = GenericClassInfo;
+
         /// By default we don't have generic class info
         static GenericClassInfo* GetGenericInfo() { return nullptr; }
         /// By default just return the ValueTypeInfo
@@ -1004,9 +1173,9 @@ namespace AZ
         }
         static const char* GetRttiTypeName(const ValueType* instance, const AZStd::true_type& /*HasAZRtti<ValueType>*/)
         {
-            return instance ? instance->RTTI_GetTypeName() : ValueType::RTTI_TypeName();
+            return instance ? GetRttiHelper<ValueType>()->GetActualTypeName(instance) : AzTypeInfo<ValueType>::Name();
         }
-        static const char* GetRttiTypeName(const ValueType* /*instance*/, const AZStd::false_type& /*HasAZRtti<ValueType>*/)
+        static const char* GetRttiTypeName(const ValueType* /*instance*/, const AZStd::false_type& /*!HasAZRtti<ValueType>*/)
         {
             return "NotAZRttiType";
         }
@@ -1018,9 +1187,9 @@ namespace AZ
         static const Uuid& GetRttiTypeId(const ValueType* instance) { return GetRttiTypeId(instance, typename HasAZRtti<ValueType>::type()); }
         static const Uuid& GetRttiTypeId(const ValueType* instance, const AZStd::true_type& /*HasAZRtti<ValueType>*/)
         {
-            return instance ? instance->RTTI_GetType() : ValueType::RTTI_Type();
+            return instance ? AZ::RttiTypeId(instance) : AzTypeInfo<ValueType>::Uuid();
         }
-        static const Uuid& GetRttiTypeId(const ValueType* /*instance*/, const AZStd::false_type& /*HasAZRtti<ValueType>*/)
+        static const Uuid& GetRttiTypeId(const ValueType* /*instance*/, const AZStd::false_type& /*!HasAZRtti<ValueType>*/)
         {
             static Uuid s_nullUuid = Uuid::CreateNull();
             return s_nullUuid;
@@ -1028,18 +1197,18 @@ namespace AZ
 
         static bool IsRttiTypeOf(const Uuid& id, const AZStd::true_type& /*HasAZRtti<ValueType>*/)
         {
-            return ValueType::RTTI_IsContainType(id);
+            return GetRttiHelper<ValueType>()->GetTypeId(id);
         }
-        static bool IsRttiTypeOf(const Uuid& /*id*/, const AZStd::false_type& /*HasAZRtti<ValueType>*/)
+        static bool IsRttiTypeOf(const Uuid& /*id*/, const AZStd::false_type& /*!HasAZRtti<ValueType>*/)
         {
             return false;
         }
 
         static void RttiEnumHierarchy(RTTI_EnumCallback callback, void* userData, const AZStd::true_type& /*HasAZRtti<ValueType>*/)
         {
-            return ValueType::RTTI_EnumHierarchy(callback, userData);
+            return AZ::RttiEnumHierarchy<ValueType>(callback, userData);
         }
-        static void RttiEnumHierarchy(RTTI_EnumCallback /*callback*/, void* /*userData*/, const AZStd::false_type& /*HasAZRtti<ValueType>*/)
+        static void RttiEnumHierarchy(RTTI_EnumCallback /*callback*/, void* /*userData*/, const AZStd::false_type& /*!HasAZRtti<ValueType>*/)
         {
         }
 
@@ -1054,9 +1223,9 @@ namespace AZ
         }
         static const void* RttiCast(const ValueType* instance, const Uuid& asType, const AZStd::true_type& /*HasAZRtti<ValueType>*/)
         {
-            return instance ? instance->RTTI_AddressOf(asType) : nullptr;
+            return AZ::RttiAddressOf(instance, asType);
         }
-        static const void* RttiCast(const ValueType* instance, const Uuid& /*asType*/, const AZStd::false_type& /*HasAZRtti<ValueType>*/)
+        static const void* RttiCast(const ValueType* instance, const Uuid& /*asType*/, const AZStd::false_type& /*!HasAZRtti<ValueType>*/)
         {
             return instance;
         }
@@ -1071,25 +1240,21 @@ namespace AZ
         }
         static void* RttiCast(ValueType* instance, const Uuid& asType, const AZStd::true_type& /*HasAZRtti<ValueType>*/)
         {
-            return instance ? instance->RTTI_AddressOf(asType) : nullptr;
+            return AZ::RttiAddressOf(instance, asType);
         }
-        static void* RttiCast(ValueType* instance, const Uuid& /*asType*/, const AZStd::false_type& /*HasAZRtti<ValueType>*/)
+        static void* RttiCast(ValueType* instance, const Uuid& /*asType*/, const AZStd::false_type& /*!HasAZRtti<ValueType>*/)
         {
             return instance;
         }
 
     private:
-        static const AZ::Uuid& GetUuidHelper(const ValueType* /* ptr */, const AZStd::false_type& /* HasAZRtti<U>::type() */)
+        static const AZ::Uuid& GetUuidHelper(const ValueType* /* ptr */, const AZStd::false_type& /* !HasAZRtti<U>::type() */)
         {
             return SerializeGenericTypeInfo<ValueType>::GetClassTypeId();
         }
         static const AZ::Uuid& GetUuidHelper(const ValueType* ptr, const AZStd::true_type& /* HasAZRtti<U>::type() */)
         {
-            if (ptr)
-            {
-                return ptr->RTTI_GetType();
-            }
-            return SerializeGenericTypeInfo<ValueType>::GetClassTypeId();
+            return ptr ? AZ::RttiTypeId(ptr) : SerializeGenericTypeInfo<ValueType>::GetClassTypeId();
         }
     };
 
@@ -1251,72 +1416,71 @@ namespace AZ
         EnumerateBase(callback, AzTypeInfo<T>::Uuid());
     }
 
-    //=========================================================================
-    // Class
-    // [10/31/2012]
-    //=========================================================================
-    template<class T>
-    SerializeContext::ClassBuilder
-    SerializeContext::Class()
+    constexpr char const* c_serializeBaseClassStrings[] = { "BaseClass1", "BaseClass2", "BaseClass3" };
+    constexpr size_t c_serializeMaxNumBaseClasses = 3;
+    AZ_STATIC_ASSERT(AZ_ARRAY_SIZE(c_serializeBaseClassStrings) == c_serializeMaxNumBaseClasses, "Expected matching array size for the names of serialized base classes.");
+
+    template<class T, class BaseClass>
+    void SerializeContext::AddClassData(ClassData* classData, size_t index)
     {
-        return Class<T>(&Serialize::StaticInstance<Serialize::InstanceFactory<T> >::s_instance);
+        ClassElement ed;
+        ed.m_name = c_serializeBaseClassStrings[index];
+        ed.m_nameCrc = AZ_CRC(c_serializeBaseClassStrings[index]);
+        ed.m_flags = ClassElement::FLG_BASE_CLASS;
+        ed.m_dataSize = sizeof(BaseClass);
+        ed.m_typeId = azrtti_typeid<BaseClass>();
+        ed.m_offset = SerializeInternal::GetBaseOffset<T, BaseClass>();
+        ed.m_genericClassInfo = SerializeGenericTypeInfo<BaseClass>::GetGenericInfo();
+        ed.m_azRtti = GetRttiHelper<BaseClass>();
+        ed.m_editData = nullptr;
+        classData->m_elements.emplace_back(AZStd::move(ed));
+    }
+
+    template<class T, class... TBaseClasses>
+    void SerializeContext::AddClassData(ClassData* classData)
+    {
+        size_t index = 0;
+        // Note - if there are no base classes for T, the compiler will eat the function call in the initializer list and emit warnings for unrefed locals
+        AZ_UNUSED(classData);
+        AZ_UNUSED(index);
+        std::initializer_list<size_t> stuff{ (AddClassData<T, TBaseClasses>(classData, index), index++)... };
+        AZ_UNUSED(stuff);
     }
 
     //=========================================================================
     // Class
     // [10/31/2012]
     //=========================================================================
-    template<class T, class B1>
+    template<class T, class... TBaseClasses>
     SerializeContext::ClassBuilder
     SerializeContext::Class()
     {
-        AZ_STATIC_ASSERT(!(AZStd::is_same<T, B1>::value), "You cannot reflect a type as its own base");
-        return Class<T, B1>(&Serialize::StaticInstance<Serialize::InstanceFactory<T> >::s_instance);
+        return Class<T, TBaseClasses...>(&Serialize::StaticInstance<Serialize::InstanceFactory<T> >::s_instance);
     }
 
     //=========================================================================
     // Class
     // [10/31/2012]
     //=========================================================================
-    template<class T, class B1, class B2>
-    SerializeContext::ClassBuilder
-    SerializeContext::Class()
-    {
-        AZ_STATIC_ASSERT(!(AZStd::is_same<T, B1>::value), "You cannot reflect a type as its own base");
-        AZ_STATIC_ASSERT(!(AZStd::is_same<T, B2>::value), "You cannot reflect a type as its own base");
-        return Class<T, B1, B2>(&Serialize::StaticInstance<Serialize::InstanceFactory<T> >::s_instance);
-    }
-
-    //=========================================================================
-    // Class
-    // [10/31/2012]
-    //=========================================================================
-    template<class T, class B1, class B2, class B3>
-    SerializeContext::ClassBuilder
-    SerializeContext::Class()
-    {
-        AZ_STATIC_ASSERT(!(AZStd::is_same<T, B1>::value), "You cannot reflect a type as its own base");
-        AZ_STATIC_ASSERT(!(AZStd::is_same<T, B2>::value), "You cannot reflect a type as its own base");
-        AZ_STATIC_ASSERT(!(AZStd::is_same<T, B3>::value), "You cannot reflect a type as its own base");
-        return Class<T, B1, B2, B3>(&Serialize::StaticInstance<Serialize::InstanceFactory<T> >::s_instance);
-    }
-
-    //=========================================================================
-    // Class
-    // [10/31/2012]
-    //=========================================================================
-    template<class T>
+    template<class T, class... TBaseClasses>
     SerializeContext::ClassBuilder
     SerializeContext::Class(IObjectFactory* factory)
     {
-        const char* name = AzTypeInfo<T>::Name();
+        AZ_STATIC_ASSERT((AZStd::negation_v< AZStd::disjunction<AZStd::is_same<T, TBaseClasses>...> >), "You cannot reflect a type as its own base");
+        AZ_STATIC_ASSERT(sizeof...(TBaseClasses) <= c_serializeMaxNumBaseClasses, "Only " AZ_STRINGIZE(c_serializeMaxNumBaseClasses) " base classes are supported. You can add more in c_serializeBaseClassStrings.");
+
         const Uuid& typeUuid = AzTypeInfo<T>::Uuid();
+        const char* name = AzTypeInfo<T>::Name();
+
         if (IsRemovingReflection())
         {
             auto mapIt = m_uuidMap.find(typeUuid);
             if (mapIt != m_uuidMap.end())
             {
                 RemoveClassData(&mapIt->second);
+
+                m_classNameToUuid.erase(Crc32(name));
+                m_uuidAnyCreationMap.erase(typeUuid);
                 m_uuidMap.erase(mapIt);
             }
             return ClassBuilder(this, m_uuidMap.end());
@@ -1327,174 +1491,9 @@ namespace AZ
             UuidToClassMap::pair_iter_bool result = m_uuidMap.insert(AZStd::make_pair(typeUuid, ClassData::Create<T>(name, typeUuid, factory)));
             AZ_Assert(result.second, "This class type %s could not be registered with duplicated Uuid: %s.", name, typeUuid.ToString<AZStd::string>().c_str());
             m_uuidAnyCreationMap.emplace(SerializeTypeInfo<T>::GetUuid(), &AnyTypeInfoConcept<T>::CreateAny);
-            return ClassBuilder(this, result.first);
-        }
-    }
 
-    //=========================================================================
-    // Class
-    // [10/31/2012]
-    //=========================================================================
-    template<class T, class B1>
-    SerializeContext::ClassBuilder
-    SerializeContext::Class(IObjectFactory* factory)
-    {
-        const char* name = AzTypeInfo<T>::Name();
-        const Uuid& typeUuid = AzTypeInfo<T>::Uuid();
-        if (IsRemovingReflection())
-        {
-            auto mapIt = m_uuidMap.find(typeUuid);
-            if (mapIt != m_uuidMap.end())
-            {
-                RemoveClassData(&mapIt->second);
-                m_uuidMap.erase(mapIt);
-            }
-            return ClassBuilder(this, m_uuidMap.end());
-        }
-        else
-        {
-            m_classNameToUuid.emplace(AZ::Crc32(name), typeUuid);
-            UuidToClassMap::pair_iter_bool result = m_uuidMap.insert(AZStd::make_pair(typeUuid, ClassData::Create<T>(name, typeUuid, factory)));
-            AZ_Assert(result.second, "This class type %s could not be registered with duplicated Uuid: %s.", name, typeUuid.ToString<AZStd::string>().c_str());
+            AddClassData<T, TBaseClasses...>(&result.first->second);
 
-            ClassData& cd = result.first->second;
-            m_uuidAnyCreationMap.emplace(SerializeTypeInfo<T>::GetUuid(), &AnyTypeInfoConcept<T>::CreateAny);
-
-            ClassElement ed;
-            // base class
-            ed.m_name = "BaseClass1";
-            ed.m_nameCrc = AZ_CRC("BaseClass1", 0xd4925735);
-            ed.m_flags = ClassElement::FLG_BASE_CLASS;
-            ed.m_dataSize = sizeof(B1);
-            ed.m_typeId = azrtti_typeid<B1>();
-            ed.m_offset = SerializeInternal::GetBaseOffset<T, B1>();
-            ed.m_genericClassInfo = SerializeGenericTypeInfo<B1>::GetGenericInfo();
-            ed.m_azRtti = GetRttiHelper<B1>();
-            ed.m_editData = nullptr;
-            cd.m_elements.push_back(ed);
-            return ClassBuilder(this, result.first);
-        }
-    }
-
-    //=========================================================================
-    // Class
-    // [10/31/2012]
-    //=========================================================================
-    template<class T, class B1, class B2>
-    SerializeContext::ClassBuilder
-    SerializeContext::Class(IObjectFactory* factory)
-    {
-        const char* name = AzTypeInfo<T>::Name();
-        const Uuid& typeUuid = AzTypeInfo<T>::Uuid();
-        if (IsRemovingReflection())
-        {
-            auto mapIt = m_uuidMap.find(typeUuid);
-            if (mapIt != m_uuidMap.end())
-            {
-                RemoveClassData(&mapIt->second);
-                m_uuidMap.erase(mapIt);
-            }
-            return ClassBuilder(this, m_uuidMap.end());
-        }
-        else
-        {
-            m_classNameToUuid.emplace(AZ::Crc32(name), typeUuid);
-            UuidToClassMap::pair_iter_bool result = m_uuidMap.insert(AZStd::make_pair(typeUuid, ClassData::Create<T>(name, typeUuid, factory)));
-            AZ_Assert(result.second, "This class type %s could not be registered with duplicated Uuid: %s.", name, typeUuid.ToString<AZStd::string>().c_str());
-
-            ClassData& cd = result.first->second;
-            m_uuidAnyCreationMap.emplace(SerializeTypeInfo<T>::GetUuid(), &AnyTypeInfoConcept<T>::CreateAny);
-
-            ClassElement ed;
-            // base class
-            ed.m_name = "BaseClass1";
-            ed.m_nameCrc = AZ_CRC("BaseClass1", 0xd4925735);
-            ed.m_flags = ClassElement::FLG_BASE_CLASS;
-            ed.m_dataSize = sizeof(B1);
-            ed.m_typeId = SerializeTypeInfo<B1>::GetUuid();
-            ed.m_offset = SerializeInternal::GetBaseOffset<T, B1>();
-            ed.m_genericClassInfo = SerializeGenericTypeInfo<B1>::GetGenericInfo();
-            ed.m_azRtti = GetRttiHelper<B1>();
-            ed.m_editData = NULL;
-            cd.m_elements.push_back(ed);
-
-            ed.m_name = "BaseClass2";
-            ed.m_nameCrc = AZ_CRC("BaseClass2", 0x4d9b068f);
-            ed.m_flags = ClassElement::FLG_BASE_CLASS;
-            ed.m_dataSize = sizeof(B2);
-            ed.m_typeId = SerializeTypeInfo<B2>::GetUuid();
-            ed.m_offset = SerializeInternal::GetBaseOffset<T, B2>();
-            ed.m_genericClassInfo = SerializeGenericTypeInfo<B2>::GetGenericInfo();
-            ed.m_azRtti = GetRttiHelper<B2>();
-            ed.m_editData = NULL;
-            cd.m_elements.push_back(ed);
-            return ClassBuilder(this, result.first);
-        }
-    }
-
-    //=========================================================================
-    // Class
-    // [10/31/2012]
-    //=========================================================================
-    template<class T, class B1, class B2, class B3>
-    SerializeContext::ClassBuilder
-    SerializeContext::Class(IObjectFactory* factory)
-    {
-        const char* name = AzTypeInfo<T>::Name();
-        const Uuid& typeUuid = AzTypeInfo<T>::Uuid();
-        if (IsRemovingReflection())
-        {
-            auto mapIt = m_uuidMap.find(typeUuid);
-            if (mapIt != m_uuidMap.end())
-            {
-                RemoveClassData(&mapIt->second);
-                m_uuidMap.erase(mapIt);
-            }
-            return ClassBuilder(this, m_uuidMap.end());
-        }
-        else
-        {
-            m_classNameToUuid.emplace(AZ::Crc32(name), typeUuid);
-            UuidToClassMap::pair_iter_bool result = m_uuidMap.insert(AZStd::make_pair(typeUuid, ClassData::Create<T>(name, typeUuid, factory)));
-            AZ_Assert(result.second, "This class type %s could not be registered with duplicated Uuid: %s.", name, typeUuid.ToString<AZStd::string>().c_str());
-
-            ClassData& cd = result.first->second;
-            m_uuidAnyCreationMap.emplace(SerializeTypeInfo<T>::GetUuid(), &AnyTypeInfoConcept<T>::CreateAny);
-
-            ClassElement ed;
-            // base class
-            ed.m_name = "BaseClass1";
-            ed.m_nameCrc = AZ_CRC("BaseClass1", 0xd4925735);
-            ed.m_flags = ClassElement::FLG_BASE_CLASS;
-            ed.m_dataSize = sizeof(B1);
-            ed.m_typeId = SerializeTypeInfo<B1>::GetUuid();
-            ed.m_offset = SerializeInternal::GetBaseOffset<T, B1>();
-            ed.m_genericClassInfo = SerializeGenericTypeInfo<B1>::GetGenericInfo();
-            ed.m_azRtti = GetRttiHelper<B1>();
-            ed.m_editData = NULL;
-            cd.m_elements.push_back(ed);
-
-            ed.m_name = "BaseClass2";
-            ed.m_nameCrc = AZ_CRC("BaseClass2", 0x4d9b068f);
-            ed.m_flags = ClassElement::FLG_BASE_CLASS;
-            ed.m_dataSize = sizeof(B2);
-            ed.m_typeId = SerializeTypeInfo<B2>::GetUuid();
-            ed.m_offset = SerializeInternal::GetBaseOffset<T, B2>();
-            ed.m_genericClassInfo = SerializeGenericTypeInfo<B2>::GetGenericInfo();
-            ed.m_azRtti = GetRttiHelper<B2>();
-            ed.m_editData = NULL;
-            cd.m_elements.push_back(ed);
-
-            ed.m_name = "BaseClass3";
-            ed.m_nameCrc = AZ_CRC("BaseClass3", 0x3a9c3619);
-            ed.m_flags = ClassElement::FLG_BASE_CLASS;
-            ed.m_dataSize = sizeof(B3);
-            ed.m_typeId = SerializeTypeInfo<B3>::GetUuid();
-            ed.m_offset = SerializeInternal::GetBaseOffset<T, B3>();
-            ed.m_genericClassInfo = SerializeGenericTypeInfo<B3>::GetGenericInfo();
-            ed.m_azRtti = GetRttiHelper<B3>();
-            ed.m_editData = NULL;
-            cd.m_elements.push_back(ed);
             return ClassBuilder(this, result.first);
         }
     }
@@ -1544,7 +1543,10 @@ namespace AZ
         ed.m_genericClassInfo = SerializeGenericTypeInfo<ValueType>::GetGenericInfo();
         ed.m_typeId = SerializeGenericTypeInfo<ValueType>::GetClassTypeId();
         AZ_Assert(!ed.m_typeId.IsNull(), "You must provide a valid class id for class %s", name);
-        ed.m_attributes.insert(ed.m_attributes.end(), attributes.begin(), attributes.end());
+        for (const AttributePair& attributePair : attributes)
+        {
+            ed.m_attributes.emplace_back(attributePair.first, attributePair.second);
+        }
 
         if (ed.m_genericClassInfo)
         {
@@ -1552,6 +1554,14 @@ namespace AZ
         }
 
         m_currentAttributes = &ed.m_attributes;
+
+        // Flag the field with the EnumType attribute if we're an enumeration type aliased by RemoveEnum
+        // We use Attribute here, so we have to do this after m_currentAttributes is assigned
+        const bool isSpecializedEnum = AZStd::is_enum<FieldType>::value && !AzTypeInfo<FieldType>::Uuid().IsNull();
+        if (isSpecializedEnum)
+        {
+            Attribute(AZ_CRC("EnumType", 0xb177e1b5), AzTypeInfo<FieldType>::Uuid());
+        }
 
         return this;
     }
@@ -1618,8 +1628,7 @@ namespace AZ
 
     //=========================================================================
     // DataElementNode::GetData
-    // [10/31/2012]
-    //=========================================================================
+    // [10/31/2012]    bool SerializeContext::DataElementNode::GetDataHierarchy(SerializeContext& sc, T& value, ErrorHandler* errorHandler)
     template <typename T>
     bool SerializeContext::DataElementNode::GetData(T& value, ErrorHandler* errorHandler)
     {
@@ -1688,6 +1697,20 @@ namespace AZ
     bool SerializeContext::DataElementNode::GetDataHierarchy(SerializeContext&, T& value, ErrorHandler* errorHandler)
     {
         return GetData<T>(value, errorHandler);
+    }
+
+    //=========================================================================
+    // DataElementNode::FindSubElementAndGetData
+    //=========================================================================
+    template <typename T>
+    bool SerializeContext::DataElementNode::FindSubElementAndGetData(AZ::Crc32 crc, T& outValue)
+    {
+        if (AZ::SerializeContext::DataElementNode* subElementNode = FindSubElement(crc))
+        {
+            return subElementNode->GetData<T>(outValue);
+        }
+
+        return false;
     }
 
     //=========================================================================
@@ -1938,6 +1961,19 @@ namespace AZ
     }
 
     //=========================================================================
+    // SerializeContext::RegisterGenericType<ValueType>
+    //=========================================================================
+    template <class ValueType>
+    void SerializeContext::RegisterGenericType()
+    {
+        auto genericInfo = SerializeGenericTypeInfo<ValueType>::GetGenericInfo();
+        if (genericInfo)
+        {
+            genericInfo->Reflect(this);
+        }
+    }
+
+    //=========================================================================
     // SerializeGenericTypeInfo<ValueType>::GetClassTypeId
     //=========================================================================
     template<class ValueType>
@@ -1945,10 +1981,99 @@ namespace AZ
     {
         return AzTypeInfo<typename AZStd::RemoveEnum<ValueType>::type>::Uuid();
     };
+
+    /**
+    * PerModuleGenericClassInfo tracks module specific reflections of GenericClassInfo for each serializeContext
+    * registered with this module(.dll)
+    */
+    class SerializeContext::PerModuleGenericClassInfo final
+    {
+    public:
+        using GenericInfoModuleMap = AZStd::unordered_map<AZ::Uuid, AZ::GenericClassInfo*, AZStd::hash<AZ::Uuid>, AZStd::equal_to<AZ::Uuid>, AZ::AZStdIAllocator>;
+
+        PerModuleGenericClassInfo();
+        ~PerModuleGenericClassInfo();
+
+        AZ::IAllocatorAllocate& GetAllocator();
+
+        void AddGenericClassInfo(AZ::GenericClassInfo* genericClassInfo);
+        void RemoveGenericClassInfo(const AZ::TypeId& canonicalTypeId);
+
+        void RegisterSerializeContext(AZ::SerializeContext* serializeContext);
+        void UnregisterSerializeContext(AZ::SerializeContext* serializeContext);
+
+        /// Creates GenericClassInfo and registers it with the current module if it has not already been registered
+        /// Returns a pointer to the GenericClassInfo derived class that was created
+        template <typename T>
+        typename SerializeGenericTypeInfo<T>::ClassInfoType* CreateGenericClassInfo();
+
+        /// Returns GenericClassInfo registered with the current module.
+        template <typename T>
+        AZ::GenericClassInfo* FindGenericClassInfo() const;
+        AZ::GenericClassInfo* FindGenericClassInfo(const AZ::TypeId& genericTypeId) const;
+    private:
+        void Cleanup();
+
+        AZ::OSAllocator m_moduleOSAllocator;
+
+        GenericInfoModuleMap m_moduleLocalGenericClassInfos;
+        using SerializeContextSet = AZStd::unordered_set<SerializeContext*, AZStd::hash<SerializeContext*>, AZStd::equal_to<SerializeContext*>, AZ::AZStdIAllocator>;
+        SerializeContextSet m_serializeContextSet;
+    };
+
+    template<typename T>
+    typename SerializeGenericTypeInfo<T>::ClassInfoType* SerializeContext::PerModuleGenericClassInfo::CreateGenericClassInfo()
+    {
+        using GenericClassInfoType = typename SerializeGenericTypeInfo<T>::ClassInfoType;
+        static_assert(AZStd::is_base_of<AZ::GenericClassInfo, GenericClassInfoType>::value, "GenericClassInfoType must be be derived from AZ::GenericClassInfo");
+
+        const AZ::TypeId& canonicalTypeId = AzTypeInfo<T>::Uuid();
+        auto findIt = m_moduleLocalGenericClassInfos.find(canonicalTypeId);
+        if (findIt != m_moduleLocalGenericClassInfos.end())
+        {
+            return static_cast<GenericClassInfoType*>(findIt->second);
+        }
+
+        void* rawMemory = m_moduleOSAllocator.Allocate(sizeof(GenericClassInfoType), alignof(GenericClassInfoType));
+        new (rawMemory) GenericClassInfoType();
+        auto genericClassInfo = static_cast<GenericClassInfoType*>(rawMemory);
+        if (genericClassInfo)
+        {
+            AddGenericClassInfo(genericClassInfo);
+        }
+        return genericClassInfo;
+    }
+
+    template<typename T>
+    AZ::GenericClassInfo* SerializeContext::PerModuleGenericClassInfo::FindGenericClassInfo() const
+    {
+        return FindGenericClassInfo(azrtti_typeid<T>());
+    }
+
+    /// Creates AZ::Attribute that is allocated using the the SerializeContext PerModule allocator
+    /// associated with current module
+    /// @param attrValue value to store within the attribute
+    /// @param ContainerType second parameter which is used for function parameter deduction
+    template <typename ContainerType, typename T>
+    AttributePtr CreateModuleAttribute(T&& attrValue)
+    {
+        IAllocatorAllocate& moduleAllocator = GetCurrentSerializeContextModule().GetAllocator();
+        void* rawMemory = moduleAllocator.Allocate(sizeof(ContainerType), alignof(ContainerType));
+        new (rawMemory) ContainerType{ AZStd::forward<T>(attrValue) };
+        auto attributeDeleter = [](Attribute* attribute)
+        {
+            IAllocatorAllocate& moduleAllocator = GetCurrentSerializeContextModule().GetAllocator();
+            attribute->~Attribute();
+            moduleAllocator.DeAllocate(attribute);
+        };
+
+        return AttributePtr{ static_cast<ContainerType*>(rawMemory), AZStd::move(attributeDeleter), AZStdIAllocator(&moduleAllocator) };
+    }
 }   // namespace AZ
 
 /// include AZStd containers generics
 #include <AzCore/Serialization/AZStdContainers.inl>
+#include <AzCore/Serialization/std/VariantReflection.inl>
 
 /// include asset generics
 #include <AzCore/Asset/AssetSerializer.h>

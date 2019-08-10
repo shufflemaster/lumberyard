@@ -526,7 +526,11 @@ void CLog::LogV(const ELogType type, int flags, const char* szFormat, va_list ar
     if (bufferlen > 0)
     {
 #if defined(AZ_RESTRICTED_PLATFORM)
-#include AZ_RESTRICTED_FILE(Log_cpp, AZ_RESTRICTED_PLATFORM)
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/Log_cpp_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/Log_cpp_provo.inl"
+    #endif
 #endif
 #if defined(AZ_RESTRICTED_SECTION_IMPLEMENTED)
 #undef AZ_RESTRICTED_SECTION_IMPLEMENTED
@@ -1124,6 +1128,7 @@ void CLog::LogStringToFile(const char* szString, ELogType logType, bool bAdd, Me
         tempString += '\n';
     }
 
+    // do not OutputDebugString in release.
 #if !defined(_RELEASE)
     if (queueState == MessageQueueState::NotQueued)
     {
@@ -1132,15 +1137,21 @@ void CLog::LogStringToFile(const char* szString, ELogType logType, bool bAdd, Me
         // Thus, we discard slightly more characters (ie, those inside the current ANSI code-page, but outside ASCII).
         // In exchange, we save double-converting that would have happened otherwise (UTF-8 -> UTF-16 -> ANSI).
         LogStringType asciiString;
-        Unicode::Convert<Unicode::eEncoding_ASCII, Unicode::eEncoding_UTF8>(asciiString, tempString);
+        Unicode::ConvertSafe<Unicode::EErrorRecovery::eErrorRecovery_FallbackLatin1ThenDiscard, Unicode::eEncoding_ASCII, Unicode::eEncoding_UTF8>(asciiString, tempString);
+#if !defined(AZ_TESTS_ENABLED)
+        // in TEST mode, we allow the above calls to be covered, but not the below system call to OutputDebugString.
+        // it is not necessary to "test" the system function OutputDebugString, and it tends to spam the console
+        // obscuring actual test results and issues.
         OutputDebugString(asciiString.c_str());
+#endif // !defined(AZ_TESTS_ENABLED)
     }
 
     if (!bIsMainThread)
     {
         return;
     }
-#endif
+#endif // !defined(_RELEASE)
+
 
     //////////////////////////////////////////////////////////////////////////
     // Call callback function.
@@ -1360,6 +1371,8 @@ void CLog::CreateBackupFile() const
     string bakdest = PathUtil::Make(LOG_BACKUP_PATH, sFileWithoutExt + sBackupNameAttachment + "." + sExt);
     fileSystem->CreatePath(LOG_BACKUP_PATH);
     cry_strcpy(m_sBackupFilename, bakdest.c_str());
+    // Remove any existing backup file with the same name first since the copy will fail otherwise.
+    fileSystem->Remove(m_sBackupFilename);
     fileSystem->Copy(m_szFilename, bakdest);
 #endif // AZ_LEGACY_CRYSYSTEM_TRAIT_ALLOW_CREATE_BACKUP_LOG_FILE
 }

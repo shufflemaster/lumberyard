@@ -28,7 +28,11 @@
 #include <AzCore/std/parallel/conditional_variable.h>
 
 #if defined(AZ_RESTRICTED_PLATFORM)
-#include AZ_RESTRICTED_FILE(AssetManager_cpp, AZ_RESTRICTED_PLATFORM)
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/AssetManager_cpp_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/AssetManager_cpp_provo.inl"
+    #endif
 #endif
 #if defined(AZ_RESTRICTED_SECTION_IMPLEMENTED)
 #undef AZ_RESTRICTED_SECTION_IMPLEMENTED
@@ -103,6 +107,9 @@ namespace UnitTest
 
         MyAssetType()
             : m_data(nullptr) {}
+        explicit MyAssetType(const AZ::Data::AssetId& assetId, const AZ::Data::AssetData::AssetStatus assetStatus = AZ::Data::AssetData::AssetStatus::NotLoaded)
+            : AssetData(assetId, assetStatus)
+            , m_data(nullptr) {}
         ~MyAssetType()
         {
             if (m_data)
@@ -261,6 +268,54 @@ namespace UnitTest
         size_t m_delayMsMax = 0;
 
         //////////////////////////////////////////////////////////////////////////
+    };
+
+    class MyAssetActiveAssetCountHandler
+        : public AssetHandler
+    {
+    public:
+        AZ_CLASS_ALLOCATOR(MyAssetActiveAssetCountHandler, AZ::SystemAllocator, 0);
+
+        //////////////////////////////////////////////////////////////////////////
+        // AssetHandler
+        AssetPtr CreateAsset(const AssetId& id, const AssetType& type) override
+        {
+            (void)id;
+            EXPECT_TRUE(type == AzTypeInfo<MyAssetType>::Uuid());
+
+            return aznew MyAssetType(id);
+        }
+        bool LoadAssetData(const Asset<AssetData>& asset, IO::GenericStream* stream, const AZ::Data::AssetFilterCB& assetLoadFilterCB) override
+        {
+            (void)assetLoadFilterCB;
+            EXPECT_TRUE(asset.GetType() == AzTypeInfo<MyAssetType>::Uuid());
+            EXPECT_TRUE(asset.Get() != nullptr && asset.Get()->GetType() == AzTypeInfo<MyAssetType>::Uuid());
+            size_t assetDataSize = static_cast<size_t>(stream->GetLength());
+            MyAssetType* myAsset = asset.GetAs<MyAssetType>();
+            myAsset->m_data = reinterpret_cast<char*>(azmalloc(assetDataSize + 1));
+            AZStd::string input = AZStd::string::format("Asset<id=%s, type=%s>", asset.GetId().ToString<AZStd::string>().c_str(), asset.GetType().ToString<AZStd::string>().c_str());
+            stream->Read(assetDataSize, myAsset->m_data);
+            myAsset->m_data[assetDataSize] = 0;
+
+            return azstricmp(input.c_str(), myAsset->m_data) == 0;
+        }
+        bool SaveAssetData(const Asset<AssetData>& asset, IO::GenericStream* stream) override
+        {
+            EXPECT_TRUE(asset.GetType() == AzTypeInfo<MyAssetType>::Uuid());
+            AZStd::string output = AZStd::string::format("Asset<id=%s, type=%s>", asset.GetId().ToString<AZStd::string>().c_str(), asset.GetType().ToString<AZStd::string>().c_str());
+            stream->Write(output.size(), output.c_str());
+            return true;
+        }
+        void DestroyAsset(AssetPtr ptr) override
+        {
+            EXPECT_TRUE(ptr->GetType() == AzTypeInfo<MyAssetType>::Uuid());
+            delete ptr;
+        }
+
+        void GetHandledAssetTypes(AZStd::vector<AssetType>& assetTypes) override
+        {
+            assetTypes.push_back(AzTypeInfo<MyAssetType>::Uuid());
+        }
     };
 
     struct MyAssetMsgHandler
@@ -945,12 +1000,12 @@ namespace UnitTest
         // load asset 1
         asset1 = AssetManager::Instance().GetAsset<MyAssetType>(Uuid(MYASSET1_ID));
 
-        assetCB1->SetCallbacks(onAssetReady, nullptr, nullptr, nullptr, nullptr, nullptr);
+        assetCB1->SetOnAssetReadyCallback(onAssetReady);
         assetCB1->BusConnect(asset1.GetId());
 
         // load asset 2
         asset2 = AssetManager::Instance().GetAsset<MyAssetType>(Uuid(MYASSET2_ID));
-        assetCB2->SetCallbacks(onAssetReady, nullptr, nullptr, nullptr, nullptr, nullptr);
+        assetCB2->SetOnAssetReadyCallback(onAssetReady);
         assetCB2->BusConnect(asset2.GetId());
 
         // Wait for assets to load
@@ -964,6 +1019,50 @@ namespace UnitTest
         asset1 = nullptr;
         EXPECT_TRUE(asset2.IsReady());
         asset2 = nullptr;
+    }
+
+    TEST_F(AssetManagerTest, AssetHandlerOnlyTracksAssetsCreatedByAssetManager)
+    {
+        // Unregister fixture handler(MyAssetHandlerAndCatalog) until the end of the test
+        AssetManager::Instance().UnregisterHandler(m_assetHandlerAndCatalog);
+
+        MyAssetActiveAssetCountHandler testHandler;
+        AssetManager::Instance().RegisterHandler(&testHandler, AzTypeInfo<MyAssetType>::Uuid());
+        {
+            // Unmanaged asset created in Scope #1
+            Asset<MyAssetType> nonAssetManagerManagedAsset(aznew MyAssetType());
+            {
+                // Managed asset created in Scope #2
+                Asset<MyAssetType> assetManagerManagedAsset1;
+                assetManagerManagedAsset1.Create(Uuid(MYASSET1_ID));
+                Asset<MyAssetType> assetManagerManagedAsset2 = AssetManager::Instance().GetAsset(Uuid(MYASSET2_ID), azrtti_typeid<MyAssetType>(), false, {}, false, true);
+
+                // There are still two assets handled by the AssetManager so it should error once
+                // An assert will occur if the AssetHandler is unregistered and there are still active assets
+                AZ_TEST_START_ASSERTTEST;
+                AssetManager::Instance().UnregisterHandler(&testHandler);
+                AZ_TEST_STOP_ASSERTTEST(1);
+                // Re-register AssetHandler and let the managed assets ref count hit zero which will remove them from the AssetManager
+                AssetManager::Instance().RegisterHandler(&testHandler, AzTypeInfo<MyAssetType>::Uuid());
+            }
+
+            // Unregistering the AssetHandler now should result in 0 error messages since the m_assetHandlerAndCatalog::m_nActiveAsset count should be 0.
+            AZ_TEST_START_ASSERTTEST;
+            AssetManager::Instance().UnregisterHandler(&testHandler);
+            AZ_TEST_STOP_ASSERTTEST(0);
+            //Re-register AssetHandler and let the block scope end for the non managed asset.
+            AssetManager::Instance().RegisterHandler(&testHandler, AzTypeInfo<MyAssetType>::Uuid());
+        }
+
+        // Unregister the TestAssetHandler one last time. The unmanaged asset has already been destroyed.
+        // The m_assetHandlerAndCatalog::m_nActiveAsset count should still be 0 as the it did not manage the nonAssetManagerManagedAsset object
+        AZ_TEST_START_ASSERTTEST;
+        AssetManager::Instance().UnregisterHandler(&testHandler);
+        AZ_TEST_STOP_ASSERTTEST(0);
+
+        // Re-register the fixture handler so that the UnitTest fixture is able to cleanup the AssetManager without errors
+        AssetManager::Instance().RegisterHandler(m_assetHandlerAndCatalog, AzTypeInfo<MyAssetType>::Uuid());
+        AssetManager::Instance().RegisterHandler(m_assetHandlerAndCatalog, AzTypeInfo<EmptyAssetTypeWithId>::Uuid());
     }
 
     /**
@@ -1451,7 +1550,7 @@ namespace UnitTest
             AZ_RTTI(AssetC, "{283255FE-0FCB-4938-AC25-8FB18EB07158}", Data::AssetData);
             AZ_CLASS_ALLOCATOR(AssetC, SystemAllocator, 0);
             AssetC()
-                : data((AZ::u8)Data::AssetLoadBehavior::PreLoad)
+                : data{ Data::AssetLoadBehavior::PreLoad }
             {}
             AssetC(const AssetC&) = delete;
             static void Reflect(SerializeContext& context)
@@ -1527,9 +1626,8 @@ namespace UnitTest
         public:
             AZ_CLASS_ALLOCATOR(AssetHandlerAndCatalog, AZ::SystemAllocator, 0);
             AssetHandlerAndCatalog() = default;
-
-            AZ::u32 m_numCreations = 0;
-            AZ::u32 m_numDestructions = 0;
+            AZStd::atomic<int> m_numCreations = { 0 };
+            AZStd::atomic<int> m_numDestructions = { 0 };
             AZ::SerializeContext* m_context = nullptr;
 #if defined(USE_LOCAL_STORAGE)
             template <class T>
@@ -2164,6 +2262,117 @@ namespace UnitTest
 
             AssetManager::Destroy();
         }
+
+        void ParallelGetAndReleaseAsset()
+        {
+            SerializeContext context;
+            Asset1Prime::Reflect(context);
+
+            const size_t numThreads = 4;
+
+            AssetManager::Descriptor desc;
+            desc.m_maxWorkerThreads = 2;
+            AssetManager::Create(desc);
+
+            auto& db = AssetManager::Instance();
+
+            AssetHandlerAndCatalog* assetHandlerAndCatalog = aznew AssetHandlerAndCatalog;
+            assetHandlerAndCatalog->m_context = &context;
+            AZStd::vector<AssetType> types;
+            assetHandlerAndCatalog->GetHandledAssetTypes(types);
+            for (const auto& type : types)
+            {
+                db.RegisterHandler(assetHandlerAndCatalog, type);
+                db.RegisterCatalog(assetHandlerAndCatalog, type);
+            }
+
+            AZStd::vector<AZ::Uuid> assetUuids = {
+                AZ::Uuid(MYASSET1_ID),
+                AZ::Uuid(MYASSET2_ID),
+            };
+            AZStd::vector<AZStd::thread> threads;
+            AZStd::atomic<int> threadCount(numThreads);
+            AZStd::atomic_bool keepDispatching(true);
+
+            auto dispatch = [&keepDispatching]()
+            {
+                while (keepDispatching)
+                {
+                    AssetManager::Instance().DispatchEvents();
+                }
+            };
+
+            AZStd::atomic_bool wait(true);
+            AZStd::atomic_bool keepRunning(true);
+            AZStd::atomic<int> threadsRunning(0);
+            AZStd::atomic<int> dummy(0);
+
+            AZStd::thread dispatchThread(dispatch);
+
+            auto getAssetFunc = [&db, &threadCount, assetUuids, &wait, &threadsRunning, &dummy, &keepRunning](int index)
+            {
+                threadsRunning++;
+                while (wait)
+                {
+                    AZStd::this_thread::yield();
+                }
+
+                while (keepRunning)
+                {
+                    for (int innerIdx = index* 7; innerIdx > 0; innerIdx--)
+                    {
+                        // this inner loop is just to burn some time which will be different
+                        // per thread. Adding a dummy statement to ensure that the compiler does not optimize this loop.
+                        dummy = innerIdx;
+                    }
+
+                    int assetIndex = (int)(index % assetUuids.size());
+                    Data::Asset<Asset1Prime> asset1 = db.GetAsset(assetUuids[assetIndex], azrtti_typeid<Asset1Prime>(), false, nullptr);
+                    
+                    // There should be at least 1 ref here in this scope
+                    EXPECT_GE(asset1.Get()->GetUseCount(), 1);
+                };
+
+                threadCount--;
+            };
+
+            for (int idx = 0; idx < numThreads; idx++)
+            {
+                threads.emplace_back(AZStd::bind(getAssetFunc, idx));
+            }
+
+            while (threadsRunning < numThreads)
+            {
+                AZStd::this_thread::yield();
+            }
+
+            // We have ensured that all the threads have started at this point and we can let them start hammering at the AssetManager
+            wait = false;
+
+            AZStd::chrono::system_clock::time_point start = AZStd::chrono::system_clock::now();
+            while (AZStd::chrono::duration_cast<AZStd::chrono::milliseconds>(AZStd::chrono::system_clock::now() - start) < AZStd::chrono::seconds(2))
+            {
+                AZStd::this_thread::yield();
+            }
+
+            keepRunning = false;
+
+            for (auto& thread : threads)
+            {
+                thread.join();
+            }
+
+            EXPECT_EQ(threadCount, 0);
+
+            EXPECT_EQ(assetHandlerAndCatalog->m_numCreations, assetHandlerAndCatalog->m_numDestructions);
+            EXPECT_FALSE(db.FindAsset(assetUuids[0]));
+            EXPECT_FALSE(db.FindAsset(assetUuids[1]));
+
+            keepDispatching = false;
+            dispatchThread.join();
+
+            AssetManager::Destroy();
+        }
     };
 
     TEST_F(AssetJobsMultithreadedTest, ParallelCreateAndDestroy)
@@ -2171,6 +2380,14 @@ namespace UnitTest
         // This test will hang on apple platforms.  Disable it for those platforms for now until we can fix it, but keep it enabled for the other platforms
 #if !defined(AZ_PLATFORM_APPLE)
         ParallelCreateAndDestroy();
+#endif
+    }
+
+    TEST_F(AssetJobsMultithreadedTest, ParallelGetAndReleaseAsset)
+    {
+        // This test will hang on apple platforms.  Disable it for those platforms for now until we can fix it, but keep it enabled for the other platforms
+#if !defined(AZ_PLATFORM_APPLE)
+        ParallelGetAndReleaseAsset();
 #endif
     }
 

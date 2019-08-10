@@ -1,3 +1,14 @@
+/*
+* All or portions of this file Copyright (c) Amazon.com, Inc. or its affiliates, or 
+* a third party where indicated.
+*
+* For complete copyright and license terms please see the LICENSE at the root of this
+* distribution (the "License"). All use of this software is governed by the License,  
+* or, if provided, by the license below or the license accompanying this file. Do not
+* remove or modify any license notices. This file is distributed on an "AS IS" BASIS,
+* WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.  
+*
+*/
 
 #include "StdAfx.h"
 #include "GameStartup.h"
@@ -5,7 +16,7 @@
 #include "Core/EditorGame.h"
 #include <IPlayerProfiles.h>
 #include <CryLibrary.h>
-#include <IPlatformOS.h>
+#include <ITimer.h>
 #include <PakVars.h>
 
 #define DLL_INITFUNC_CREATEGAME "CreateGameFramework"
@@ -99,10 +110,6 @@ IGameRef GameStartup::Reset()
 
 void GameStartup::Shutdown()
 {
-    if (m_Framework && m_Framework->GetISystem() && m_Framework->GetISystem()->GetPlatformOS())
-    {
-        m_Framework->GetISystem()->GetPlatformOS()->RemoveListener(this);
-    }
     if (m_Game)
     {
         m_Game->Shutdown();
@@ -123,19 +130,6 @@ void GameStartup::ExecuteAutoExec()
     {
         m_bExecutedAutoExec = true;
         gEnv->pConsole->ExecuteString("exec autoexec.cfg");
-    }
-}
-
-void GameStartup::OnPlatformEvent(const IPlatformOS::SPlatformEvent& event)
-{
-    switch (event.m_eEventType)
-    {
-    case IPlatformOS::SPlatformEvent::eET_SignIn:
-    {
-        // We're not running autoExec here, rather we wait for GameStartup::Run 
-        // Calling here will prevent proper loading of the level
-    }
-    break;
     }
 }
 

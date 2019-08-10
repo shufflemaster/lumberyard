@@ -18,7 +18,20 @@
 #include <AzCore/std/containers/vector.h>
 #include <AzFramework/Asset/AssetProcessorMessages.h>
 #include <AssetBuilderSDK/AssetBuilderBusses.h>
+#include <native/assetprocessor.h>
 #include <QByteArray>
+
+namespace AssetProcessor
+{
+    struct BuilderParams;
+}
+
+namespace AssetUtilities
+{
+    class QuitListener;
+    class JobLogTraceListener;
+}
+
 
 //This EBUS broadcasts the platform of the connection the AssetProcessor connected or disconnected with
 class AssetProcessorPlaformBusTraits
@@ -131,7 +144,9 @@ namespace AssetProcessor
         virtual ~AssetBuilderInfoBusTraits() {}
 
         // For a given asset returns a list of all asset builder that are interested in it.
-        virtual void GetMatchingBuildersInfo(const AZStd::string& assetPath, AssetProcessor::BuilderInfoList& builderInfoList) {};
+
+        virtual void GetMatchingBuildersInfo(const AZStd::string& assetPath, AssetProcessor::BuilderInfoList& /*builderInfoList*/) = 0;
+        virtual void GetAllBuildersInfo(AssetProcessor::BuilderInfoList& /*builderInfoList*/) = 0;
     };
 
     using  AssetBuilderInfoBus = AZ::EBus<AssetBuilderInfoBusTraits>;
@@ -158,6 +173,7 @@ namespace AssetProcessor
         //! this path MUST be in normalized format - that is, forward slashes, correct case, absolute full path
         //! and on windows, drive letter capital.
         virtual void StopIgnoringCacheFileDelete(const char* /*productPath*/, bool /*queueAgainForProcessing*/) {};
+        virtual AZ::u32 GetJobFingerprint(const AssetProcessor::JobIndentifier& /*jobIndentifier*/) { return 0; };
     };
 
     using ProcessingJobInfoBus = AZ::EBus<ProcessingJobInfoBusTraits>;
@@ -209,4 +225,28 @@ namespace AssetProcessor
     };
 
     using DiskSpaceInfoBus = AZ::EBus<DiskSpaceInfoBusTraits>;
+
+    // This EBUS is used to perform Asset Server related tasks.
+    class AssetServerBusTraits
+        : public AZ::EBusTraits
+    {
+    public:
+        static const AZ::EBusHandlerPolicy HandlerPolicy = AZ::EBusHandlerPolicy::Single;
+        static const AZ::EBusAddressPolicy AddressPolicy = AZ::EBusAddressPolicy::Single;
+        typedef AZStd::recursive_mutex MutexType;
+        static const bool LocklessDispatch = true;
+        //! This will return true if we were able to verify the server address as being valid, otherwise return false.
+        virtual bool IsServerAddressValid() = 0;
+        //! StoreJobResult should store all the files in the temp folder provided by the builderParams to the server, 
+        //! It should associate those files with the server key provided by the builderParams because
+        //! it will be send the same server key to retrieve these files by the client.
+        //! This will return true if it was able to save all the relevant job data to the server, otherwise return false.
+        virtual bool StoreJobResult(const AssetProcessor::BuilderParams& builderParams) = 0;
+        //! RetrieveJobResult should retrieve all the files associated with the server key provided in the builderParams 
+        //! and put them in the temporary directory provided by the builderParam.
+        //! This will return true if it was able to retrieve all the relevant job data from the server, otherwise return false. 
+        virtual bool RetrieveJobResult(const AssetProcessor::BuilderParams& builderParams) = 0;
+    };
+
+    using AssetServerBus = AZ::EBus<AssetServerBusTraits>;
 } // namespace AssetProcessor

@@ -19,11 +19,13 @@
 
 #include <AzToolsFramework/ToolsComponents/EditorEntityIdContainer.h>
 #include <AzToolsFramework/UI/PropertyEditor/EntityIdQLabel.hxx>
+#include <AzToolsFramework/Entity/EditorEntityContextBus.h>
 #include <AzToolsFramework/Entity/EditorEntityContextPickingBus.h>
 #include <AzToolsFramework/Entity/EditorEntityHelpers.h>
-#include <AzToolsFramework/ToolsComponents/EditorComponentBase.h>
+#include <AzToolsFramework/ViewportSelection/EditorInteractionSystemViewportSelectionRequestBus.h>
+#include <AzToolsFramework/ViewportSelection/EditorDefaultSelection.h>
+#include <AzToolsFramework/ViewportSelection/EditorPickEntitySelection.h>
 
-#include <QtWidgets/QCheckBox>
 #include <QtWidgets/QHBoxLayout>
 #include <QtWidgets/QFrame>
 #include <QtCore/QMimeData>
@@ -51,6 +53,7 @@ namespace AzToolsFramework
         m_entityIdLabel->setFixedHeight(PropertyQTConstant_DefaultHeight);
         m_entityIdLabel->setFrameShape(QFrame::Panel);
         m_entityIdLabel->setFrameShadow(QFrame::Sunken);
+        m_entityIdLabel->setTextInteractionFlags(Qt::NoTextInteraction);
         m_entityIdLabel->setFocusPolicy(Qt::StrongFocus);
 
         m_pickButton = aznew QPushButton(this);
@@ -89,11 +92,11 @@ namespace AzToolsFramework
         {
             if (!m_pickButton->isChecked())
             {
-                InitObjectPickMode();
+                StartEntityPickMode();
             }
             else
             {
-                CancelObjectPickMode();
+                StopEntityPickMode();
             }
         });
 
@@ -101,11 +104,11 @@ namespace AzToolsFramework
         {
             if (m_pickButton->isChecked())
             {
-                InitObjectPickMode();
+                StartEntityPickMode();
             }
             else
             {
-                CancelObjectPickMode();
+                StopEntityPickMode();
             }
         });
 
@@ -115,39 +118,70 @@ namespace AzToolsFramework
         });
     }
 
-    void PropertyEntityIdCtrl::InitObjectPickMode()
+    void PropertyEntityIdCtrl::StartEntityPickMode()
     {
-        EBUS_EVENT(AzToolsFramework::EditorPickModeRequests::Bus, StopObjectPickMode);
-        if (!EditorPickModeRequests::Bus::Handler::BusIsConnected())
+        EditorPickModeRequestBus::Broadcast(&EditorPickModeRequests::StopEntityPickMode);
+
+        if (!EditorPickModeRequestBus::Handler::BusIsConnected())
         {
+            AzFramework::EntityContextId pickModeEntityContextId = GetPickModeEntityContextId();
+
             emit OnPickStart();
             m_pickButton->setChecked(true);
-            EditorPickModeRequests::Bus::Handler::BusConnect();
-            AzToolsFramework::EditorEvents::Bus::Handler::BusConnect();
+            EditorPickModeRequestBus::Handler::BusConnect(pickModeEntityContextId);
+            EditorEventsBus::Handler::BusConnect();
+
+            if (IsNewViewportInteractionModelEnabled())
+            {
+                // replace the default input handler with one specific for dealing with
+                // entity selection in the viewport
+                EditorInteractionSystemViewportSelectionRequestBus::Event(
+                    GetEntityContextId(), &EditorInteractionSystemViewportSelection::SetHandler,
+                    [](const EditorVisibleEntityDataCache* entityDataCache)
+                {
+                    return AZStd::make_unique<EditorPickEntitySelection>(entityDataCache);
+                });
+            }
+
+            if (!pickModeEntityContextId.IsNull())
+            {
+                EditorPickModeNotificationBus::Event(
+                    pickModeEntityContextId, &EditorPickModeNotifications::OnEntityPickModeStarted);
+            }
+            else
+            {
+                // Broadcast if the entity context is unknown
+                EditorPickModeNotificationBus::Broadcast(&EditorPickModeNotifications::OnEntityPickModeStarted);
+            }
         }
-        EBUS_EVENT(AzToolsFramework::EditorPickModeRequests::Bus, StartObjectPickMode);
     }
 
-    void PropertyEntityIdCtrl::CancelObjectPickMode()
+    AzFramework::EntityContextId PropertyEntityIdCtrl::GetPickModeEntityContextId()
     {
-        if (EditorPickModeRequests::Bus::Handler::BusIsConnected())
-        {
-            EBUS_EVENT(AzToolsFramework::EditorPickModeRequests::Bus, StopObjectPickMode);
-        }
+        return m_acceptedEntityContextId;
     }
 
-    void PropertyEntityIdCtrl::StopObjectPickMode()
+    void PropertyEntityIdCtrl::StopEntityPickMode()
     {
-        if (EditorPickModeRequests::Bus::Handler::BusIsConnected())
+        if (EditorPickModeRequestBus::Handler::BusIsConnected())
         {
             m_pickButton->setChecked(false);
-            EditorPickModeRequests::Bus::Handler::BusDisconnect();
-            AzToolsFramework::EditorEvents::Bus::Handler::BusDisconnect();
+            EditorPickModeRequestBus::Handler::BusDisconnect();
+            EditorEventsBus::Handler::BusDisconnect();
             emit OnPickComplete();
+
+            if (IsNewViewportInteractionModelEnabled())
+            {
+                // return to the default viewport editor selection
+                EditorInteractionSystemViewportSelectionRequestBus::Event(
+                    GetEntityContextId(), &EditorInteractionSystemViewportSelection::SetDefaultHandler);
+            }
+
+            EditorPickModeNotificationBus::Broadcast(&EditorPickModeNotifications::OnEntityPickModeStopped);
         }
     }
 
-    void PropertyEntityIdCtrl::OnPickModeSelect(AZ::EntityId id)
+    void PropertyEntityIdCtrl::PickModeSelectEntity(const AZ::EntityId id)
     {
         if (id.IsValid())
         {
@@ -157,7 +191,7 @@ namespace AzToolsFramework
 
     void PropertyEntityIdCtrl::OnEscape()
     {
-        CancelObjectPickMode();
+        StopEntityPickMode();
     }
 
     void PropertyEntityIdCtrl::dragLeaveEvent(QDragLeaveEvent* event)
@@ -287,7 +321,7 @@ namespace AzToolsFramework
 
     PropertyEntityIdCtrl::~PropertyEntityIdCtrl()
     {
-        CancelObjectPickMode();
+        StopEntityPickMode();
     }
 
     QWidget* PropertyEntityIdCtrl::GetFirstInTabOrder()
@@ -345,7 +379,7 @@ namespace AzToolsFramework
                             unmatchedServices.erase(unmatchedServices.begin() + serviceIdx);
                         }
                     }
-                    
+
                     for (const auto& service : providedServices)
                     {
                         if (AZStd::find(m_incompatibleServices.begin(), m_incompatibleServices.end(), service) != m_incompatibleServices.end())
@@ -456,6 +490,7 @@ namespace AzToolsFramework
         connect(newCtrl, &PropertyEntityIdCtrl::OnEntityIdChanged, this, [newCtrl](AZ::EntityId)
             {
                 EBUS_EVENT(PropertyEditorGUIMessages::Bus, RequestWrite, newCtrl);
+                AzToolsFramework::PropertyEditorGUIMessages::Bus::Broadcast(&PropertyEditorGUIMessages::Bus::Handler::OnEditingFinished, newCtrl);
             });
         return newCtrl;
     }
@@ -531,7 +566,7 @@ namespace AzToolsFramework
         // Tell the GUI which entity context it should accept
         AzFramework::EntityContextId contextId = AzFramework::EntityContextId::CreateNull();
         if (entityId.IsValid())
-        {            
+        {
             EBUS_EVENT_ID_RESULT(contextId, entityId, AzFramework::EntityIdContextQueryBus, GetOwningContextId);
         }
         GUI->SetAcceptedEntityContext(contextId);

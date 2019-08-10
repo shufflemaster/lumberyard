@@ -15,11 +15,15 @@ import util
 import copy
 import json
 import time
+import os
 
 import resource_group
 import mappings
 import project
 import stack
+import cognito_pools
+from cgf_utils import custom_resource_utils
+
 
 from botocore.exceptions import NoCredentialsError
 
@@ -32,7 +36,6 @@ PENDING_CREATE_REASON = 'The deployment''s resource group defined resources have
 ACCESS_PENDING_CREATE_REASON = 'The deployment''s access control resources have not been created in AWS.'
 CONFIGURATION_SUFFIX = 'Configuration'
 CONFIGURATION_KEY_SUFFIX = 'ConfigurationKey'
-CROSS_GEM_RESOLVER_KEY = 'CrossGemCommunicationInterfaceResolver'
 
 
 def create_stack(context, args):
@@ -46,8 +49,9 @@ def create_stack(context, args):
         raise HandledError('The project already has a {} deployment.'.format(args.deployment))
 
     # Does deployment-template.json include resource group from a gem which isn't enabled for the project?
-    for resource_group_name in context.resource_groups.keys():
-         __check_resource_group_gem_status(context, resource_group_name)
+    for resource_group in context.resource_groups.values():
+        __validate_resource_group_resources(resource_group)
+        __check_resource_group_gem_status(context, resource_group.name)
 
     # Is the deployment name valid?
     util.validate_stack_name(args.deployment)
@@ -122,6 +126,8 @@ def create_stack(context, args):
     deployment_uploader = project_uploader.get_deployment_uploader(args.deployment)
 
     template_url = before_update(context, deployment_uploader)
+    if os.path.exists(context.config.join_aws_directory_path(constant.COGNITO_POOLS_FILENAME)):
+        deployment_uploader.upload_file(constant.COGNITO_POOLS_FILENAME, context.config.join_aws_directory_path(constant.COGNITO_POOLS_FILENAME))
 
     deployment_stack_parameters = __get_deployment_stack_parameters(context, args.deployment, uploader = deployment_uploader)
 
@@ -226,9 +232,9 @@ def create_stack(context, args):
                     )
 
                 # Add the cross-gem resolver last, if it is required
-                cross_gem_resolver = saved_resources.get(CROSS_GEM_RESOLVER_KEY, None)
+                cross_gem_resolver = saved_resources.get(constant.CROSS_GEM_RESOLVER_KEY, None)
                 if cross_gem_resolver:
-                    template_resources[CROSS_GEM_RESOLVER_KEY] = cross_gem_resolver
+                    template_resources[constant.CROSS_GEM_RESOLVER_KEY] = cross_gem_resolver
                     context.stack.update(
                         deployment_stack_id,
                         None,
@@ -318,7 +324,8 @@ def create_stack(context, args):
         if not updated_mappings:
             __update_mappings(context, args.deployment)
 
-    after_update(context, deployment_uploader)
+    after_update(context, deployment_uploader, args.record_cognito_pools)
+
 
 def __set_release_deployment(context, deployment):
     context.config.set_release_deployment(deployment)
@@ -367,7 +374,7 @@ def delete_stack(context, args):
                 remove_stacks = [k for k, v in old_resources.iteritems() if v['Type'] == "AWS::CloudFormation::Stack"]
 
                 # Remove the cross gem resolver first, if it exists
-                old_resources.pop(CROSS_GEM_RESOLVER_KEY, None)
+                old_resources.pop(constant.CROSS_GEM_RESOLVER_KEY, None)
 
                 # Remove the resource groups one at a time
                 for remove_stack in remove_stacks[:-1]:  # Can't have an empty stack, so leave one resource group present
@@ -478,39 +485,41 @@ def upload_resources(context, args):
         raise HandledError('There is no {} deployment stack.'.format(args.deployment))
 
     if args.resource_group is not None:
-        # is the resource group from a gem which isn't enabled for the project?
-        __check_resource_group_gem_status(context, args.resource_group)
-
-        stack_id = context.config.get_resource_group_stack_id(
-            args.deployment, args.resource_group, optional=True)
-        if args.resource_group in context.resource_groups:
-            context.config.aggregate_settings = {}
-            for group in context.resource_groups.values():
-                if group.is_enabled:
-                    group.add_aggregate_settings(context)
-
-            group = context.resource_groups.get(args.resource_group)
-            if stack_id is None:
-                if group.is_enabled:
-                    resource_group.create_stack(context, args)
-                else:
-                    raise HandledError(
-                        'The {} resource group is disabled and no stack exists.'.format(group.name))
-            else:
-                if group.is_enabled:
-                    resource_group.update_stack(context, args)
-                else:
-                    resource_group.delete_stack(context, args)
-        else:
-            if stack_id is None:
-                raise HandledError(
-                    'There is no {} resource group.'.format(args.resource_group))
-            resource_group.delete_stack(context, args)
-
-        __update_mappings(context, args.deployment, True)
-
+        __resource_group_upload(context, args)
     else:
         update_stack(context, args)
+
+def __resource_group_upload(context, args):
+    # is the resource group from a gem which isn't enabled for the project?
+    __check_resource_group_gem_status(context, args.resource_group)
+
+    stack_id = context.config.get_resource_group_stack_id(
+        args.deployment, args.resource_group, optional=True)
+    if args.resource_group in context.resource_groups:
+        context.config.aggregate_settings = {}
+        for group in context.resource_groups.values():
+            if group.is_enabled:
+                group.add_aggregate_settings(context)
+
+        group = context.resource_groups.get(args.resource_group)
+        if stack_id is None:
+            if group.is_enabled:
+                resource_group.create_stack(context, args)
+            else:
+                raise HandledError(
+                    'The {} resource group is disabled and no stack exists.'.format(group.name))
+        else:
+            if group.is_enabled:
+                resource_group.update_stack(context, args)
+            else:
+                resource_group.delete_stack(context, args)
+    else:
+        if stack_id is None:
+            raise HandledError(
+                'There is no {} resource group.'.format(args.resource_group))
+        resource_group.delete_stack(context, args)
+
+    __update_mappings(context, args.deployment, True)
 
 
 def update_stack(context, args):
@@ -523,8 +532,9 @@ def update_stack(context, args):
         args.deployment = context.config.default_deployment
 
     # Does deployment-template.json include resource group from a gem which isn't enabled for the project?
-    for resource_group_name in context.resource_groups.keys():
-         __check_resource_group_gem_status(context, resource_group_name)
+    for resource_group in context.resource_groups.values():
+        __validate_resource_group_resources(resource_group)
+        __check_resource_group_gem_status(context, resource_group.name)
 
     # Resource group (and other) file write checks
     create_and_validate_writable_list(context)
@@ -560,6 +570,9 @@ def update_stack(context, args):
     deployment_uploader = project_uploader.get_deployment_uploader(args.deployment)
 
     deployment_template_url = before_update(context, deployment_uploader)
+    if os.path.exists(context.config.join_aws_directory_path(constant.COGNITO_POOLS_FILENAME)):
+        deployment_uploader.upload_file(
+            constant.COGNITO_POOLS_FILENAME, context.config.join_aws_directory_path(constant.COGNITO_POOLS_FILENAME))
 
     parameters = __get_deployment_stack_parameters(context, args.deployment, uploader = deployment_uploader)
     enabled_resource_groups = [resource_group for resource_group in context.resource_groups.values() if resource_group.is_enabled]
@@ -636,7 +649,7 @@ def update_stack(context, args):
             parameters[k + CONFIGURATION_KEY_SUFFIX] = None
 
         # Remove the cross-gem interface resolver if it exists
-        cross_gem_resolver = new_resources.pop(CROSS_GEM_RESOLVER_KEY, None)
+        cross_gem_resolver = new_resources.pop(constant.CROSS_GEM_RESOLVER_KEY, None)
 
         try:
             # Do individual stack updates for each newly created resource
@@ -690,7 +703,7 @@ def update_stack(context, args):
 
             # Re-add the cross gem resolver last
             if cross_gem_resolver:
-                new_resources[CROSS_GEM_RESOLVER_KEY] = cross_gem_resolver
+                new_resources[constant.CROSS_GEM_RESOLVER_KEY] = cross_gem_resolver
                 context.stack.update(
                     deployment_stack_id,
                     None,
@@ -704,7 +717,7 @@ def update_stack(context, args):
         except stack.StackOperationException:
             pass
 
-    after_update(context, deployment_uploader)
+    after_update(context, deployment_uploader, args.record_cognito_pools)
 
     # Update mappings...
     __update_mappings(context, args.deployment, has_changes)
@@ -807,7 +820,7 @@ def before_update(context, deployment_uploader):
     return deployment_template_url
 
 
-def after_update(context, deployment_uploader):
+def after_update(context, deployment_uploader, record_pools):
 
     for group in context.resource_groups.values():
         if group.is_enabled:
@@ -815,7 +828,8 @@ def after_update(context, deployment_uploader):
                 deployment_uploader,
                 group.name
             )
-
+    if record_pools:
+        __record_cognito_pools(context, deployment_uploader)
     # Deprecated in 1.9 - TODO: remove
     deployment_uploader.execute_uploader_post_hooks()
 
@@ -824,6 +838,24 @@ def after_update(context, deployment_uploader):
         args = [deployment_uploader.deployment_name, None],
         deprecated = True
     )
+
+
+def __record_cognito_pools(context, deployment_uploader):
+    access_stack_arn = context.config.get_deployment_access_stack_id(
+        deployment_uploader.deployment_name, True)
+    pools = {
+        "DeploymentAccess": {}
+    }
+    if access_stack_arn != None:
+        access_resources = context.stack.describe_resources(
+            access_stack_arn, recursive=True)
+        for resource_name, definition in access_resources.iteritems():
+            if definition["ResourceType"] in ["Custom::CognitoIdentityPool", "Custom::CognitoUserPool"]:
+                pools["DeploymentAccess"][resource_name] = {
+                    "PhysicalResourceId": custom_resource_utils.get_embedded_physical_id(definition['PhysicalResourceId']),
+                    "Type": definition["ResourceType"]
+                }
+    cognito_pools.write_to_project_file(context, pools)
 
 
 def tags(context, args):
@@ -898,6 +930,14 @@ def list(context, args):
 def describe_stack(context, args):
     stack_description = _get_deployment_stack_description(context, args.deployment)
     context.view.deployment_stack_description(args.deployment, stack_description)
+
+
+def __validate_resource_group_resources(resource_group):
+    if not resource_group.is_enabled:
+        return
+    for name, description in resource_group.template["Resources"].iteritems():
+        if description["Type"] == "Custom::ResourceTypes":
+            raise HandledError("{}:{} is of the type Custom::ResourceTypes, that type is not allowed outside of a ProjectStack.".format(resource_group.name, name))
 
 
 def _get_effective_deployment_stack_id(context, deployment_name):

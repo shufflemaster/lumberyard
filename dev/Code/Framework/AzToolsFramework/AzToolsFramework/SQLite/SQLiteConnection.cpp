@@ -380,7 +380,7 @@ namespace AzToolsFramework
 
             int res = sqlite3_prepare_v2(db, m_parentPrototype->GetSqlText().c_str(), (int)m_parentPrototype->GetSqlText().length() + 1, &m_statement, NULL);
             
-            AZ_Error("SQLiteConnection", res == SQLITE_OK, "Statement::PrepareFirstTime: failed! %s ( prototype is '%s')", sqlite3_errmsg(db), m_parentPrototype->GetSqlText().c_str());
+            AZ_Error("SQLiteConnection", res == SQLITE_OK, "Statement::PrepareFirstTime: failed! %s ( prototype is '%s'). Error code returned is %d.", sqlite3_errmsg(db), m_parentPrototype->GetSqlText().c_str(), res);
             return ((res == SQLITE_OK)&&(m_statement));
         }
 
@@ -634,61 +634,6 @@ namespace AzToolsFramework
             return 0; // named params actually start at 1 - so zero is an ok error value.
         }
 
-        bool Statement::BindNamedUuid(const char* name, AZ::Uuid& value)
-        {
-            int index = GetNamedParamIdx(name);
-            if (!index)
-            {
-                return false;
-            }
-            return BindValueUuid(index, value);
-        }
-        bool Statement::BindNamedBlob(const char* name, void* data, int dataSize)
-        {
-            int index = GetNamedParamIdx(name);
-            if (!index)
-            {
-                return false;
-            }
-            return BindValueBlob(index, data, dataSize);
-        }
-        bool Statement::BindNamedDouble(const char* name, double value)
-        {
-            int index = GetNamedParamIdx(name);
-            if (!index)
-            {
-                return false;
-            }
-            return BindValueDouble(index, value);
-        }
-        bool Statement::BindNamedInt(const char* name, int value)
-        {
-            int index = GetNamedParamIdx(name);
-            if (!index)
-            {
-                return false;
-            }
-            return BindValueInt(index, value);
-        }
-        bool Statement::BindNamedText(const char* name, const char* value)
-        {
-            int index = GetNamedParamIdx(name);
-            if (!index)
-            {
-                return false;
-            }
-            return BindValueText(index, value);
-        }
-        bool Statement::BindNamedInt64(const char* name, AZ::s64 value)
-        {
-            int index = GetNamedParamIdx(name);
-            if (!index)
-            {
-                return false;
-            }
-            return BindValueInt64(index, value);
-        }
-
         const StatementPrototype* Statement::GetParentPrototype() const
         {
             return m_parentPrototype;
@@ -755,4 +700,4 @@ namespace AzToolsFramework
             }
         }
     } // namespace SQLite
-} // namespace AZFramework
+} // namespace AzFramework

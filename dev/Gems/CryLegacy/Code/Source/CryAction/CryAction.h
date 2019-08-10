@@ -15,10 +15,7 @@
 //               provides a generic game framework for action based games
 //               such as 1st and 3rd person shooters.
 
-#ifndef CRYINCLUDE_CRYACTION_CRYACTION_H
-#define CRYINCLUDE_CRYACTION_CRYACTION_H
 #pragma once
-
 
 #include <ISystem.h>
 #include <ICmdLine.h>
@@ -27,6 +24,8 @@
 #include "ICryPak.h"
 #include "ISaveGame.h"
 #include "ITestSystem.h"
+
+#include <AzCore/Module/DynamicModuleHandle.h>
 
 struct IFlowSystem;
 struct IGameTokenSystem;
@@ -144,7 +143,7 @@ public:
     void PauseGame(bool pause, bool force, unsigned int nFadeOutInMS = 0) override;
     bool IsGamePaused() override;
     bool IsGameStarted() override;
-    void MarkGameStarted() override;
+    void MarkGameStarted(bool started) override;
     bool IsLoadingSaveGame() override;
     const char* GetLevelName() override;
     const char* GetAbsLevelPath(char* const pPath, const uint32 cPathMaxLen) override;
@@ -437,7 +436,7 @@ private:
     IEntitySystem* m_pEntitySystem;
     ITimer* m_pTimer;
     ILog* m_pLog;
-    void* m_systemDll;
+    AZStd::unique_ptr<AZ::DynamicModuleHandle>  m_crySystemModule;
 
     _smart_ptr<CActionGame>       m_pGame;
 
@@ -612,5 +611,3 @@ private:
 
     CGameContextBridge* m_contextBridge;
 };
-
-#endif // CRYINCLUDE_CRYACTION_CRYACTION_H

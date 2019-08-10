@@ -248,13 +248,13 @@ namespace AZ
             void NotifyAssetReloaded(Asset<AssetData> asset);
             void NotifyAssetReloadError(Asset<AssetData> asset);
             void NotifyAssetError(Asset<AssetData> asset);
-            void ReleaseAsset(AssetData* asset);
+            void ReleaseAsset(AssetData* asset, AssetId assetId, AssetType assetType, bool removeAssetFromHash, int creationToken);
 
             void AddJob(AssetDatabaseJob* job);
             void RemoveJob(AssetDatabaseJob* job);
 
             //////////////////////////////////////////////////////////////////////////
-            // AssetDatabaseBus
+            // AssetManagerBus
             void OnAssetReady(const Asset<AssetData>& asset) override;
             void OnAssetReloaded(const Asset<AssetData>& asset) override;
             void OnAssetReloadError(const Asset<AssetData>& asset) override;
@@ -266,6 +266,8 @@ namespace AZ
             AZStd::recursive_mutex  m_catalogMutex;     // lock when accessing the catalog map
             AssetMap                m_assets;
             AZStd::recursive_mutex  m_assetMutex;       // lock when accessing the asset map
+
+            int m_creationTokenGenerator = 0; // this is used to generate unique identifiers for assets
 
             typedef AZStd::unordered_map<AssetId, Asset<AssetData> > ReloadMap;
             ReloadMap               m_reloads;          // book-keeping and reference-holding for asset reloads
@@ -401,7 +403,7 @@ namespace AZ
             virtual AssetStreamInfo GetStreamInfoForLoad(const AssetId& assetId, const AssetType& assetType) = 0;
 
             /**
-             * Same as \ref GetStreamNameForLoad but for saving. It's not typical that assets will have 'save' support,
+             * Same as \ref GetStreamInfoForLoad but for saving. It's not typical that assets will have 'save' support,
              * as they are generated from external tools, etc. But when needed, the framework provides an interface.
              */
             virtual AssetStreamInfo GetStreamInfoForSave(const AssetId& assetId, const AssetType& assetType)

@@ -30,6 +30,10 @@ namespace AzToolsFramework
     {
         struct JobInfo;
     }
+    namespace Logging
+    {
+        class LogLine;
+    }
 }
 
 class QStringList;
@@ -41,6 +45,7 @@ namespace AssetProcessor
     struct AssetRecognizer;
     class JobEntry;
     class AssetDatabaseConnection;
+    struct BuilderParams;
 }
 
 namespace AssetUtilities
@@ -78,14 +83,30 @@ namespace AssetUtilities
     //! Updates the branch token in the bootstrap file
     bool UpdateBranchToken();
 
+    //! Checks to see if the asset processor is running in server mode
+    bool InServerMode();
+
+    //! Checks the args for the server parameter, returns true if found otherwise false.
+    bool CheckServerMode();
+
+    //! Reads the server address from the config file.
+    QString ServerAddress();
+
+
     //! Determine the name of the current game - for example, SamplesProject
     QString ComputeGameName(QString initialFolder = QString(), bool force = false);
 
     //! Reads the white list directly from the bootstrap file
     QString ReadWhitelistFromBootstrap(QString initialFolder = QString());
 
+    //! Reads the white list directly from the bootstrap file
+    QString ReadRemoteIpFromBootstrap(QString initialFolder = QString());
+
     //! Writes the white list directly to the bootstrap file
     bool WriteWhitelistToBootstrap(QStringList whiteList);
+    
+    //! Writes the remote ip directly to the bootstrap file
+    bool WriteRemoteIpToBootstrap(QString remoteIp);
 
     //! Reads the game name directly from the bootstrap file
     QString ReadGameNameFromBootstrap(QString initialFolder = QString());
@@ -187,15 +208,37 @@ namespace AssetUtilities
     AZStd::string ComputeJobLogFileName(const AssetProcessor::JobEntry& jobEntry);
     AZStd::string ComputeJobLogFileName(const AssetBuilderSDK::CreateJobsRequest& createJobsRequest);
 
-    void ReadJobLog(AzToolsFramework::AssetSystem::JobInfo& jobInfo, AzToolsFramework::AssetSystem::AssetJobLogResponse& response);
-    void ReadJobLog(const char* absolutePath, AzToolsFramework::AssetSystem::AssetJobLogResponse& response);
+    enum class ReadJobLogResult
+    {
+        Success,
+        MissingFileIO,
+        MissingLogFile,
+        EmptyLogFile,
+    };
+
+    ReadJobLogResult ReadJobLog(AzToolsFramework::AssetSystem::JobInfo& jobInfo, AzToolsFramework::AssetSystem::AssetJobLogResponse& response);
+    ReadJobLogResult ReadJobLog(const char* absolutePath, AzToolsFramework::AssetSystem::AssetJobLogResponse& response);
 
     //! interrogate a given file, which is specified as a full path name, and generate a fingerprint for it.
     unsigned int GenerateFingerprint(const AssetProcessor::JobDetails& jobDetail);
-    // Generates a fingerprint for a file without querying the existence of metadata files.  Helper function for GenerateFingerprint.
-    unsigned int GenerateBaseFingerprint(QString fullPathToFile, QString extraInfo = QString());
+    
+    // Generates a fingerprint string based on details of the file, will return the string "0" if the file does not exist.
+    // note that the 'name to use' can be blank, but it used to disambiguate between files that have the same
+    // modtime and size.
+    AZStd::string GetFileFingerprint(const AZStd::string& absolutePath, const AZStd::string& nameToUse);
 
     QString GuessProductNameInDatabase(QString path, QString platform, AssetProcessor::AssetDatabaseConnection* databaseConnection);
+
+    /** A utility function which checks the given path starting at the root and updates the relative path to be the actual case correct path.
+    * For example, if you pass it "c:\lumberyard\dev" as the root and "editor\icons\whatever.ico" as the relative path.
+    * It may update relativePathFromRoot to be "Editor\Icons\Whatever.ico" if such a casing is the actual physical case on disk already.
+    * @param rootPath a trusted already-case-correct path (will not be case corrected).
+    * @param relativePathFromRoot a non-trusted (may be incorrect case) path relative to rootPath, 
+    *        which will be normalized and updated to be correct casing.
+    * @return if such a file does NOT exist, it returns FALSE, else returns TRUE.
+    * @note A very expensive function!  Call sparingly.
+    */
+    bool UpdateToCorrectCase(const QString& rootPath, QString& relativePathFromRoot);
 
     class BuilderFilePatternMatcher
         : public AssetBuilderSDK::FilePatternMatcher
@@ -252,6 +295,8 @@ namespace AssetUtilities
 
         bool OnPrintf(const char* window, const char* message) override;
         //////////////////////////////////////////////////////////////////////////
+
+        void AppendLog(AzToolsFramework::Logging::LogLine& logLine);
 
     private:
         AZStd::unique_ptr<AzFramework::LogFile> m_logFile;

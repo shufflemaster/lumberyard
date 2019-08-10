@@ -18,6 +18,7 @@
 #include <AzToolsFramework/Asset/AssetSystemComponent.h>
 #include <AzToolsFramework/Entity/EditorEntityActionComponent.h>
 #include <AzToolsFramework/Entity/EditorEntityContextComponent.h>
+#include <AzToolsFramework/Entity/EditorEntityFixupComponent.h>
 #include <AzToolsFramework/Entity/EditorEntityModelComponent.h>
 #include <AzToolsFramework/Entity/EditorEntitySortComponent.h>
 #include <AzToolsFramework/Slice/SliceDependencyBrowserComponent.h>
@@ -28,6 +29,7 @@
 #include <AzToolsFramework/ToolsComponents/EditorOnlyEntityComponent.h>
 #include <AzToolsFramework/ToolsComponents/EditorEntityIconComponent.h>
 #include <AzToolsFramework/ToolsComponents/EditorInspectorComponent.h>
+#include <AzToolsFramework/ToolsComponents/EditorLayerComponent.h>
 #include <AzToolsFramework/ToolsComponents/EditorLockComponent.h>
 #include <AzToolsFramework/ToolsComponents/EditorPendingCompositionComponent.h>
 #include <AzToolsFramework/ToolsComponents/EditorSelectionAccentSystemComponent.h>
@@ -39,6 +41,7 @@
 #include <AzToolsFramework/Thumbnails/ThumbnailerComponent.h>
 #include <AzToolsFramework/AssetBrowser/AssetBrowserComponent.h>
 #include <AzToolsFramework/MaterialBrowser/MaterialBrowserComponent.h>
+#include <AzToolsFramework/ViewportSelection/EditorInteractionSystemComponent.h>
 
 namespace AzToolsFramework
 {
@@ -49,15 +52,16 @@ namespace AzToolsFramework
             Components::TransformComponent::CreateDescriptor(),
             Components::SelectionComponent::CreateDescriptor(),
             Components::GenericComponentWrapper::CreateDescriptor(),
-            Components::GenericComponentUnwrapper::CreateDescriptor(),
             Components::PropertyManagerComponent::CreateDescriptor(),
             Components::ScriptEditorComponent::CreateDescriptor(),
             Components::EditorSelectionAccentSystemComponent::CreateDescriptor(),
             EditorEntityContextComponent::CreateDescriptor(),
+            EditorEntityFixupComponent::CreateDescriptor(),
             SliceMetadataEntityContextComponent::CreateDescriptor(),
             Components::EditorEntityActionComponent::CreateDescriptor(),
             Components::EditorEntityIconComponent::CreateDescriptor(),
             Components::EditorInspectorComponent::CreateDescriptor(),
+            Layers::EditorLayerComponent::CreateDescriptor(),
             Components::EditorLockComponent::CreateDescriptor(),
             Components::EditorPendingCompositionComponent::CreateDescriptor(),
             Components::EditorVisibilityComponent::CreateDescriptor(),
@@ -72,6 +76,7 @@ namespace AzToolsFramework
             AzToolsFramework::Thumbnailer::ThumbnailerComponent::CreateDescriptor(),
             AzToolsFramework::AssetBrowser::AssetBrowserComponent::CreateDescriptor(),
             AzToolsFramework::MaterialBrowser::MaterialBrowserComponent::CreateDescriptor(),
+            AzToolsFramework::EditorInteractionSystemComponent::CreateDescriptor(),
         });
     }
 }

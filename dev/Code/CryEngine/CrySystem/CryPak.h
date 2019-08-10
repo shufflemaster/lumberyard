@@ -355,6 +355,7 @@ private:
     threadID                                                                                            m_renderThreadId;
 
     CryFixedStringT<128>                                  m_sLocalizationFolder;
+    CryFixedStringT<128>                                  m_sLocalizationRoot;
 
     //////////////////////////////////////////////////////////////////////////
 
@@ -430,6 +431,7 @@ public: // ---------------------------------------------------------------------
     // Set the localization folder
     virtual void SetLocalizationFolder(const char* sLocalizationFolder);
     virtual const char* GetLocalizationFolder() const { return m_sLocalizationFolder.c_str(); }
+    virtual const char* GetLocalizationRoot() const { return m_sLocalizationRoot.c_str(); }
 
     // Only returns useful results on a dedicated server at present - and only if the pak is already opened
     void GetCachedPakCDROffsetSize(const char* szName, uint32& offset, uint32& size);
@@ -684,6 +686,15 @@ private:
 
     CPakFileWidget* m_pWidget;
 };
+
+namespace CryPakInternal
+{
+    // Utility function to de-alias pak file opening and file-within-pak opening
+    // if the file specified was an absolute path but it points at one of the aliases, de-alias it and replace it with that alias.
+    // this works around problems where the level editor is in control but still mounts asset packs (ie, level.pak mounted as @assets@)
+    // it is assumed that the path is already converted to forward slashes, lowcased, and normalized
+    AZ::Outcome<string, AZStd::string> ConvertAbsolutePathToAliasedPath(const char* sourcePath, const char* aliasToLookFor = "@devassets@", const char* aliasToReplaceWith = "@assets@");
+}
 
 #endif // CRYINCLUDE_CRYSYSTEM_CRYPAK_H
 

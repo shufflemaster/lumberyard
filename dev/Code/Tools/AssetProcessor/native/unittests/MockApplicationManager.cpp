@@ -136,6 +136,7 @@ namespace AssetProcessor
         builderDesc.m_patterns = builderPatterns;
         builderDesc.m_busId = AZ::Uuid::CreateString(builderId.toUtf8().data());
         builderDesc.m_builderType = AssetBuilderSDK::AssetBuilderDesc::AssetBuilderType::Internal;
+        builderDesc.m_analysisFingerprint = "xyz"; // Normally this would include the data included in the CreateJobs fingerprint but it's not important for these unit tests currently, it just needs to exist
         builderDesc.m_createJobFunction = AZStd::bind(&InternalMockBuilder::CreateJobs, this, AZStd::placeholders::_1, AZStd::placeholders::_2);
         builderDesc.m_processJobFunction = AZStd::bind(&InternalMockBuilder::ProcessJob, this, AZStd::placeholders::_1, AZStd::placeholders::_2);
         return builderDesc;
@@ -286,6 +287,14 @@ namespace AssetProcessor
         }
     };
 
+    void MockApplicationManager::GetAllBuildersInfo(AssetProcessor::BuilderInfoList& builderInfoList)
+    {
+        for (auto matcherInfo : m_matcherBuilderPatterns)
+        {
+            builderInfoList.push_back(matcherInfo.m_builderDesc);
+        }
+    };
+
     bool MockApplicationManager::GetBuilderByID(const AZStd::string& builderName, AZStd::shared_ptr<InternalMockBuilder>& builder)
     {
         if (m_internalBuilders.find(builderName) == m_internalBuilders.end())
@@ -381,4 +390,8 @@ namespace AssetProcessor
         builderInfoList.push_back(m_assetBuilderDesc);
     }
 
+    void MockAssetBuilderInfoHandler::GetAllBuildersInfo(AssetProcessor::BuilderInfoList& builderInfoList)
+    {
+        builderInfoList.push_back(m_assetBuilderDesc);
+    };
 }

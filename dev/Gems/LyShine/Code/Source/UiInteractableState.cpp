@@ -25,8 +25,10 @@
 #include <LyShine/Bus/UiCanvasBus.h>
 #include <LyShine/Bus/UiElementBus.h>
 #include <LyShine/Bus/UiVisualBus.h>
+#include <LyShine/Bus/UiIndexableImageBus.h>
 
 #include <IRenderer.h>
+#include "EditorPropertyTypes.h"
 #include "Sprite.h"
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -126,7 +128,7 @@ void UiInteractableStateColor::Reflect(AZ::ReflectContext* context)
 
     if (serializeContext)
     {
-        serializeContext->Class<UiInteractableStateColor, UiInteractableStateAction>()
+        serializeContext->Class<UiInteractableStateColor>()
             ->Version(2, &VersionConverter)
             ->Field("TargetEntity", &UiInteractableStateColor::m_targetEntity)
             ->Field("Color", &UiInteractableStateColor::m_color);
@@ -221,7 +223,7 @@ void UiInteractableStateAlpha::Reflect(AZ::ReflectContext* context)
 
     if (serializeContext)
     {
-        serializeContext->Class<UiInteractableStateAlpha, UiInteractableStateAction>()
+        serializeContext->Class<UiInteractableStateAlpha>()
             ->Version(1)
             ->Field("TargetEntity", &UiInteractableStateAlpha::m_targetEntity)
             ->Field("Alpha", &UiInteractableStateAlpha::m_alpha);
@@ -377,7 +379,7 @@ void UiInteractableStateSprite::Reflect(AZ::ReflectContext* context)
 
     if (serializeContext)
     {
-        serializeContext->Class<UiInteractableStateSprite, UiInteractableStateAction>()
+        serializeContext->Class<UiInteractableStateSprite>()
             ->Version(3)
             ->Field("TargetEntity", &UiInteractableStateSprite::m_targetEntity)
             ->Field("Sprite", &UiInteractableStateSprite::m_spritePathname)
@@ -439,19 +441,17 @@ void UiInteractableStateSprite::LoadSpriteFromTargetElement()
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
-UiImageComponent::AZu32ComboBoxVec UiInteractableStateSprite::PopulateIndexStringList() const
+UiInteractableStateSprite::AZu32ComboBoxVec UiInteractableStateSprite::PopulateIndexStringList() const
 {
-    // There may not be a sprite loaded for this component
-    if (m_sprite)
-    {
-        const AZ::u32 numCells = m_sprite->GetSpriteSheetCells().size();
+    int indexCount = 0;
+    EBUS_EVENT_ID_RESULT(indexCount, m_targetEntity, UiIndexableImageBus, GetImageIndexCount);
 
-        if (numCells != 0)
-        {
-            return UiImageComponent::GetEnumSpriteIndexList(0, numCells - 1, m_sprite);
-        }
+    if (indexCount > 0)
+    {
+        return LyShine::GetEnumSpriteIndexList(m_targetEntity, 0, indexCount - 1);
     }
-    return UiImageComponent::AZu32ComboBoxVec();
+
+    return LyShine::AZu32ComboBoxVec();
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -633,7 +633,7 @@ void UiInteractableStateFont::Reflect(AZ::ReflectContext* context)
 
     if (serializeContext)
     {
-        serializeContext->Class<UiInteractableStateFont, UiInteractableStateAction>()
+        serializeContext->Class<UiInteractableStateFont>()
             ->Version(1)
             ->Field("TargetEntity", &UiInteractableStateFont::m_targetEntity)
             ->Field("FontFileName", &UiInteractableStateFont::m_fontFilename)

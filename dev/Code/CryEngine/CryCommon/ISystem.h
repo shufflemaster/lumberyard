@@ -478,12 +478,20 @@ enum ESystemEvent
 
 #if defined(AZ_RESTRICTED_PLATFORM)
 #define AZ_RESTRICTED_SECTION ISYSTEM_H_SECTION_1
-#include AZ_RESTRICTED_FILE(ISystem_h, AZ_RESTRICTED_PLATFORM)
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/ISystem_h_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/ISystem_h_provo.inl"
+    #endif
 #endif
 
 #if defined(AZ_RESTRICTED_PLATFORM)
 #define AZ_RESTRICTED_SECTION ISYSTEM_H_SECTION_2
-#include AZ_RESTRICTED_FILE(ISystem_h, AZ_RESTRICTED_PLATFORM)
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/ISystem_h_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/ISystem_h_provo.inl"
+    #endif
 #endif
     ESYSTEM_EVENT_STREAMING_INSTALL_ERROR,
 
@@ -641,7 +649,11 @@ struct ICVarsWhitelist
 
 #if defined(AZ_RESTRICTED_PLATFORM)
 #define AZ_RESTRICTED_SECTION ISYSTEM_H_SECTION_3
-#include AZ_RESTRICTED_FILE(ISystem_h, AZ_RESTRICTED_PLATFORM)
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/ISystem_h_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/ISystem_h_provo.inl"
+    #endif
 #endif
 
 namespace AZ
@@ -966,7 +978,11 @@ struct SSystemGlobalEnvironment
 
 #if defined(AZ_RESTRICTED_PLATFORM)
 #define AZ_RESTRICTED_SECTION ISYSTEM_H_SECTION_4
-#include AZ_RESTRICTED_FILE(ISystem_h, AZ_RESTRICTED_PLATFORM)
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/ISystem_h_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/ISystem_h_provo.inl"
+    #endif
 #endif
 
     ISystemScheduler*          pSystemScheduler;
@@ -1138,14 +1154,14 @@ struct SSystemGlobalEnvironment
         bToolMode = bNewToolMode;
     }
 
-    ILINE void SetDynamicMergedMeshGenerationEnable(bool mmgenEnable)
+    ILINE void SetDynamicMergedMeshGenerationEnabled(bool mmgenEnable)
     {
-        m_bDynamicMergedMeshGenerationEnable = mmgenEnable;
+        m_bDynamicMergedMeshGenerationEnabled = mmgenEnable;
     }
 
-    ILINE const bool IsDynamicMergedMeshGenerationEnable() const
+    ILINE const bool IsDynamicMergedMeshGenerationEnabled() const
     {
-        return m_bDynamicMergedMeshGenerationEnable;
+        return m_bDynamicMergedMeshGenerationEnabled;
     }
 
 #if !defined(CONSOLE)
@@ -1159,14 +1175,14 @@ private:
 
     bool m_isFMVPlaying;
     bool m_isCutscenePlaying;
-    bool m_bDynamicMergedMeshGenerationEnable;
+    bool m_bDynamicMergedMeshGenerationEnabled;
 
 public:
     SSystemGlobalEnvironment()
         : pSystemScheduler(nullptr)
         , szCmdLine("")
         , bToolMode(false)
-        , m_bDynamicMergedMeshGenerationEnable(false)
+        , m_bDynamicMergedMeshGenerationEnabled(false)
     {
     };
 };
@@ -1468,7 +1484,7 @@ struct ISystem
 
     // Summary:
     //   Creates new xml node.
-    virtual XmlNodeRef CreateXmlNode(const char* sNodeName = "", bool bReuseStrings = false) = 0;
+    virtual XmlNodeRef CreateXmlNode(const char* sNodeName = "", bool bReuseStrings = false, bool bIsProcessingInstruction = false) = 0;
     // Summary:
     //   Loads xml from memory buffer, returns 0 if load failed.
     virtual XmlNodeRef LoadXmlFromBuffer(const char* buffer, size_t size, bool bReuseStrings = false, bool bSuppressWarnings = false) = 0;
@@ -1692,6 +1708,13 @@ struct ISystem
     //////////////////////////////////////////////////////////////////////////
 
     // Summary:
+    //  Enable/Disable drawing the console 
+    virtual void SetConsoleDrawEnabled(bool enabled) = 0;
+
+    //  Enable/Disable drawing the UI 
+    virtual void SetUIDrawEnabled(bool enabled) = 0;
+
+    // Summary:
     //   Get the index of the currently running Crytek application. (0 = first instance, 1 = second instance, etc)
     virtual int GetApplicationInstance() = 0;
 
@@ -1755,10 +1778,6 @@ struct ISystem
     virtual void SetSystemGlobalState(const ESystemGlobalState systemGlobalState) = 0;
 
     // Summary:
-    //      Add a PlatformOS create flag
-    virtual void AddPlatformOSCreateFlag(const uint8 createFlag) = 0;
-
-    // Summary:
     //      Asynchronous memcpy
     // Note sync variable will be incremented (in calling thread) before job starts
     // and decremented when job finishes. Multiple async copies can therefore be
@@ -1812,7 +1831,7 @@ struct ISystem
     virtual void UnregisterWindowMessageHandler(IWindowMessageHandler* pHandler) = 0;
 
     // Deprecated, use AzFramework::ApplicationRequests::PumpSystemEventLoopUntilEmpty instead
-    virtual int AZ_DEPRECATED(PumpWindowMessage(bool bAll, WIN_HWND hWnd = 0),
+    AZ_DEPRECATED(virtual int PumpWindowMessage(bool bAll, WIN_HWND hWnd = 0),
         "PumpWindowMessage has been deprecated, use AzFramework::ApplicationRequests::PumpSystemEventLoopUntilEmpty instead.")
     {
         // AzFramework::ApplicationRequests::Bus::Broadcast(&AzFramework::ApplicationRequests::PumpSystemEventLoopUntilEmpty);
@@ -1995,7 +2014,7 @@ inline ISystemScheduler* GetISystemScheduler(void)
 
 // Description:
 //   This function must be called once by each module at the beginning, to setup global pointers.
-extern "C" DLL_EXPORT void ModuleInitISystem(ISystem* pSystem, const char* moduleName);
+extern "C" AZ_DLL_EXPORT void ModuleInitISystem(ISystem* pSystem, const char* moduleName);
 extern bool g_bProfilerEnabled;
 extern int g_iTraceAllocations;
 
@@ -2067,7 +2086,11 @@ inline void CryWarning(EValidatorModule module, EValidatorSeverity severity, con
 
 #if defined(AZ_RESTRICTED_PLATFORM)
 #define AZ_RESTRICTED_SECTION ISYSTEM_H_SECTION_5
-#include AZ_RESTRICTED_FILE(ISystem_h, AZ_RESTRICTED_PLATFORM)
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/ISystem_h_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/ISystem_h_provo.inl"
+    #endif
 #endif
 #if defined(_RELEASE) && defined(IS_CONSOLE_PLATFORM)
 #ifndef LOG_CONST_CVAR_ACCESS

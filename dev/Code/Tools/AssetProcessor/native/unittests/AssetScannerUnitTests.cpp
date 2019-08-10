@@ -79,20 +79,26 @@ void AssetScannerUnitTest::StartTest()
     config.AddScanFolder(ScanFolderInfo(tempPath.filePath("subfolder3"), "",           "ap4",   "",       false,  false, platforms)); // note:  "Recurse" set to false.
     AssetScanner scanner(&config);
 
-    QList<QString> filesFound;
-    QList<QString> foldersFound;
+    QList<AssetFileInfo> filesFound;
+    QList<AssetFileInfo> foldersFound;
 
     bool doneScan = false;
 
-    connect(&scanner, &AssetScanner::FileOfInterestFound, this, [&filesFound](QString file)
+    connect(&scanner, &AssetScanner::FilesFound, this, [&filesFound](QSet<AssetFileInfo> fileList)
         {
-            filesFound.append(file);
+            for (AssetFileInfo foundFile : fileList)
+            {
+                filesFound.push_back(foundFile);
+            }
         }
         );
 
-    connect(&scanner, &AssetScanner::FolderOfInterestFound, this, [&foldersFound](QString folder)
+    connect(&scanner, &AssetScanner::FoldersFound, this, [&foldersFound](QSet<AssetFileInfo> folderList)
     {
-        foldersFound.append(folder);
+        for (AssetFileInfo foundFolder : folderList)
+        {
+            foldersFound.push_back(foundFolder);
+        }
     }
     );
 
@@ -125,14 +131,14 @@ void AssetScannerUnitTest::StartTest()
     UNIT_TEST_EXPECT_TRUE(doneScan);
     UNIT_TEST_EXPECT_TRUE(filesFound.count() == expectedFiles.count());
 
-    for (const QString& file : filesFound)
+    for (const AssetFileInfo& file : filesFound)
     {
-        UNIT_TEST_EXPECT_TRUE(expectedFiles.find(file) != expectedFiles.end());
+        UNIT_TEST_EXPECT_TRUE(expectedFiles.find(file.m_filePath) != expectedFiles.end());
     }
 
-    for (const QString& folder : foldersFound)
+    for (const AssetFileInfo& folder : foldersFound)
     {
-        UNIT_TEST_EXPECT_TRUE(expectedFolders.find(folder) != expectedFolders.end());
+        UNIT_TEST_EXPECT_TRUE(expectedFolders.find(folder.m_filePath) != expectedFolders.end());
     }
 
     Q_EMIT UnitTestPassed();

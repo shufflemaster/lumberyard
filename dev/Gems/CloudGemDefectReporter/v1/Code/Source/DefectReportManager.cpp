@@ -23,6 +23,8 @@
 #include <aws/core/utils/crypto/Cipher.h>
 #include <aws/core/utils/crypto/Factories.h>
 
+#include <CloudCanvasCommon/CloudCanvasCommonBus.h>
+
 namespace CloudGemDefectReporter
 {
     ReportWrapper::ReportWrapper(const DefectReport& report) :
@@ -412,6 +414,18 @@ namespace CloudGemDefectReporter
         }
     }
 
+    void DefectReportManager::DeleteReportAttachments(int reportID)
+    {
+        DefectReport report = GetReport(reportID);
+
+        for (const AttachmentDesc& attachment : report.GetAttachments())
+        {
+            DeleteAttachment(attachment.m_path);
+        }
+
+        report.ClearAttachments();
+    }
+
     void DefectReportManager::PostReports(const AZStd::vector<int>& reportIDs)
     {
         AZStd::vector<ReportWrapper> reports;
@@ -433,7 +447,7 @@ namespace CloudGemDefectReporter
         }
         
         AZ::JobContext* jobContext{ nullptr };
-        EBUS_EVENT_RESULT(jobContext, CloudGemFramework::CloudGemFrameworkRequestBus, GetDefaultJobContext);
+        EBUS_EVENT_RESULT(jobContext, CloudCanvasCommon::CloudCanvasCommonRequestBus, GetDefaultJobContext);
 
         auto job = aznew PostDefectReportsJob(jobContext, reports);
         job->Start();

@@ -1,12 +1,12 @@
 /*
-* All or portions of this file Copyright(c) Amazon.com, Inc.or its affiliates or
+* All or portions of this file Copyright (c) Amazon.com, Inc. or its affiliates or
 * its licensors.
 *
 * For complete copyright and license terms please see the LICENSE at the root of this
-* distribution(the "License").All use of this software is governed by the License,
-*or, if provided, by the license below or the license accompanying this file.Do not
-* remove or modify any license notices.This file is distributed on an "AS IS" BASIS,
-*WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+* distribution (the "License"). All use of this software is governed by the License,
+* or, if provided, by the license below or the license accompanying this file. Do not
+* remove or modify any license notices. This file is distributed on an "AS IS" BASIS,
+* WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 *
 */
 
@@ -31,6 +31,7 @@
 #include <AzCore/Outcome/Outcome.h>
 #include <AzToolsFramework/ToolsComponents/EditorComponentBase.h>
 #include <AzToolsFramework/Slice/SliceCompilation.h>
+#include <AzToolsFramework/Slice/SliceUtilities.h>
 
 namespace SliceBuilder
 {
@@ -119,6 +120,13 @@ namespace SliceBuilder
 
     void SliceBuilderWorker::CreateJobs(const AssetBuilderSDK::CreateJobsRequest& request, AssetBuilderSDK::CreateJobsResponse& response) const
     {
+        // Check for shutdown
+        if (m_isShuttingDown)
+        {
+            response.m_result = AssetBuilderSDK::CreateJobsResultCode::ShuttingDown;
+            return;
+        }
+
         AZStd::string fullPath;
         AzFramework::StringFunc::Path::ConstructFull(request.m_watchFolder.c_str(), request.m_sourceFile.c_str(), fullPath, false);
         AzFramework::StringFunc::Path::Normalize(fullPath);
@@ -185,14 +193,14 @@ namespace SliceBuilder
             AZ::ComponentApplicationBus::BroadcastResult(context, &AZ::ComponentApplicationBus::Events::GetSerializeContext);
             TypeFingerprint sourceSliceTypeFingerprint = CalculateFingerprintForSlice(*sourcePrefab, *m_typeFingerprinter, *context);
 
-            const char* compilerVersion = "4";
+            const char* compilerVersion = "6";
 
             for (const AssetBuilderSDK::PlatformInfo& info : request.m_enabledPlatforms)
             {
                 AssetBuilderSDK::JobDescriptor jobDescriptor;
                 jobDescriptor.m_priority = 0;
                 jobDescriptor.m_critical = true;
-                jobDescriptor.m_jobKey = "RC Slice";
+                jobDescriptor.m_jobKey = "Dynamic Slice";
                 jobDescriptor.SetPlatformIdentifier(info.m_identifier.c_str());
                 jobDescriptor.m_additionalFingerprintInfo = AZStd::string(compilerVersion)
                     .append(AZStd::string::format("|%llu", static_cast<uint64_t>(sourceSliceTypeFingerprint)));
@@ -208,6 +216,14 @@ namespace SliceBuilder
     {
         // Source slice is copied directly to the cache as-is, for use in-editor.
         // If slice is tagged as dynamic, we also conduct a runtime export, which converts editor->runtime components and generates a new .dynamicslice file.
+
+        // Check for shutdown
+        if (m_isShuttingDown)
+        {
+            AZ_TracePrintf(AssetBuilderSDK::InfoWindow, "Cancelled job %s because shutdown was requested.\n", request.m_sourceFile.c_str());
+            response.m_resultCode = AssetBuilderSDK::ProcessJobResult_Cancelled;
+            return;
+        }
 
         TraceDrillerHook traceDrillerHook(true);
 
@@ -289,10 +305,17 @@ namespace SliceBuilder
                 platformTags.insert(AZ::Crc32(platformTagString.c_str(), platformTagString.size(), true));
             }
 
-            // Compile the source slice into the runtime slice (with runtime components).
-            AzToolsFramework::WorldEditorOnlyEntityHandler editorOnlyEntityHandler;
+            // Compile the source slice into the runtime slice (with runtime components). Note that
+            // we may be handling either world or UI entities, so we need handlers for both.
+            AzToolsFramework::WorldEditorOnlyEntityHandler worldEditorOnlyEntityHandler;
+            AzToolsFramework::UiEditorOnlyEntityHandler uiEditorOnlyEntityHandler;
+            AzToolsFramework::EditorOnlyEntityHandlers handlers =
+            {
+                &worldEditorOnlyEntityHandler,
+                &uiEditorOnlyEntityHandler,
+            };
             AzToolsFramework::SliceCompilationResult sliceCompilationResult =
-                AzToolsFramework::CompileEditorSlice(sourceAsset, platformTags, *context, &editorOnlyEntityHandler);
+                AzToolsFramework::CompileEditorSlice(sourceAsset, platformTags, *context, handlers);
 
             if (!sliceCompilationResult)
             {
@@ -308,7 +331,7 @@ namespace SliceBuilder
             // Save runtime slice to disk.
             // Use SaveObjectToFile because it writes to a byte stream first and then to disk
             // which is much faster than SaveObjectToStream(outputStream...) when writing large slices
-            if (AZ::Utils::SaveObjectToFile<AZ::Entity>(dynamicSliceOutputPath.c_str(), AZ::DataStream::ST_XML, exportSliceAsset.Get()->GetEntity()))
+            if (AZ::Utils::SaveObjectToFile<AZ::Entity>(dynamicSliceOutputPath.c_str(), AzToolsFramework::SliceUtilities::GetSliceStreamFormat(), exportSliceAsset.Get()->GetEntity()))
             {
                 AZ_TracePrintf(s_sliceBuilder, "Output file %s", dynamicSliceOutputPath.c_str());
             }

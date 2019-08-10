@@ -63,6 +63,7 @@ extern CMTSafeHeap* g_pPakHeap;
 #include <AzCore/Android/Utils.h>
 #elif defined(AZ_PLATFORM_APPLE_IOS) || defined(AZ_PLATFORM_APPLE_TV)
 extern bool UIKitGetPrimaryPhysicalDisplayDimensions(int& o_widthPixels, int& o_heightPixels);
+extern bool UIDeviceIsTablet();
 #endif
 
 extern int CryMemoryGetAllocatedSize();
@@ -89,6 +90,16 @@ bool CSystem::GetPrimaryPhysicalDisplayDimensions(int& o_widthPixels, int& o_hei
     return AZ::Android::Utils::GetWindowSize(o_widthPixels, o_heightPixels);
 #elif defined(AZ_PLATFORM_APPLE_IOS) || defined(AZ_PLATFORM_APPLE_TV)
     return UIKitGetPrimaryPhysicalDisplayDimensions(o_widthPixels, o_heightPixels);
+#else
+    return false;
+#endif
+}
+
+bool CSystem::IsTablet()
+{
+//TODO: Add support for Android tablets
+#if defined(AZ_PLATFORM_APPLE_IOS) || defined(AZ_PLATFORM_APPLE_TV)
+    return UIDeviceIsTablet();
 #else
     return false;
 #endif
@@ -125,6 +136,9 @@ void CSystem::CreateRendererVars(const SSystemInitParams& startupParams)
     m_rWidthAndHeightAsFractionOfScreenSize = REGISTER_FLOAT("r_WidthAndHeightAsFractionOfScreenSize", 1.0f, VF_DUMPTODISK,
             "(iOS/Android only) Sets the display width and height as a fraction of the physical screen size. Default is 1.0.\n"
             "Usage: rWidthAndHeightAsFractionOfScreenSize [0.1 - 1.0]");
+    m_rTabletWidthAndHeightAsFractionOfScreenSize = REGISTER_FLOAT("r_TabletWidthAndHeightAsFractionOfScreenSize", 1.0f, VF_DUMPTODISK,
+            "(iOS only) NOTE: TABLETS ONLY Sets the display width and height as a fraction of the physical screen size. Default is 1.0.\n"
+            "Usage: rTabletWidthAndHeightAsFractionOfScreenSize [0.1 - 1.0]");
     m_rMaxWidth = REGISTER_INT("r_MaxWidth", 0, VF_DUMPTODISK,
             "(iOS/Android only) Sets the maximum display width while maintaining the device aspect ratio.\n"
             "Usage: r_MaxWidth [1024/1920/..] (0 for no max), combined with r_WidthAndHeightAsFractionOfScreenSize [0.1 - 1.0]");
@@ -331,15 +345,15 @@ void CSystem::RenderEnd(bool bRenderStats, bool bMainWindow)
 void CSystem::OnScene3DEnd()
 {
     // Render UI Canvas
-    if (gEnv->pLyShine)
+    if (m_bDrawUI && gEnv->pLyShine)
     {
         gEnv->pLyShine->Render();
     }
 
     //Render Console
-    if (IConsole* pConsole = gEnv->pConsole)
+    if (m_bDrawConsole && gEnv->pConsole)
     {
-        pConsole->Draw();
+        gEnv->pConsole->Draw();
     }
 }
 
@@ -526,7 +540,6 @@ void CSystem::SynchronousLoadingTick(const char* pFunc, int line)
 
 
 //////////////////////////////////////////////////////////////////////////
-#define CHECK_UPDATE_TIMES
 void CSystem::UpdateLoadingScreen()
 {
     // Do not update the network thread from here - it will cause context corruption - use the NetworkStallTicker thread system
@@ -536,11 +549,13 @@ void CSystem::UpdateLoadingScreen()
         return;
     }
 
-#if defined(CHECK_UPDATE_TIMES)
 #if defined(AZ_RESTRICTED_PLATFORM)
-#include AZ_RESTRICTED_FILE(SystemRender_cpp, AZ_RESTRICTED_PLATFORM)
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/SystemRender_cpp_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/SystemRender_cpp_provo.inl"
+    #endif
 #endif
-#endif // CHECK_UPDATE_TIMES
 
 #if AZ_LOADSCREENCOMPONENT_ENABLED
     EBUS_EVENT(LoadScreenBus, UpdateAndRender);
@@ -864,6 +879,9 @@ void CSystem::RenderStats()
         // Draw 3dengine stats and get last text cursor position
         float nTextPosX = 101 - 20, nTextPosY = -2, nTextStepY = 3;
         m_env.p3DEngine->DisplayInfo(nTextPosX, nTextPosY, nTextStepY, iDisplayInfo != 1);
+
+        // Dump Lumberyard CPU and GPU memory statistics to screen
+        m_env.p3DEngine->DisplayMemoryStatistics();
 
     #if defined(ENABLE_LW_PROFILERS)
         if (m_rDisplayInfo->GetIVal() == 2)

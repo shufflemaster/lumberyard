@@ -22,14 +22,11 @@
 #include "ZipDirCacheFactory.h"
 #include "CryZlib.h"
 #include <IDiskProfiler.h>
-#include <IPlatformOS.h>
 #include "CryPak.h"
 #include "ZipEncrypt.h"
 #include "System.h"
 #include <AzCore/IO/FileIO.h>
 #include <AzCore/IO/SystemFile.h> // for AZ_MAX_PATH_LEN
-
-using namespace ZipFile;
 
 // initializes the instance structure
 void ZipDir::Cache::Construct(CZipFile& fNew, CMTSafeHeap* pHeap, size_t nDataSizeIn, unsigned int nFactoryFlags, size_t nAllocatedSize)
@@ -46,8 +43,8 @@ void ZipDir::Cache::Construct(CZipFile& fNew, CMTSafeHeap* pHeap, size_t nDataSi
     m_pCacheData->m_pHeap = pHeap;
     m_nCacheFactoryFlags = nFactoryFlags;
     m_pRootData = (DirHeader*)GetDataPointer();
-    m_encryptedHeaders = HEADERS_NOT_ENCRYPTED;
-    m_signedHeaders = HEADERS_NOT_SIGNED;
+    m_encryptedHeaders = ZipFile::HEADERS_NOT_ENCRYPTED;
+    m_signedHeaders = ZipFile::HEADERS_NOT_SIGNED;
     if (m_nCacheFactoryFlags & CacheFactory::FLAGS_FILENAMES_AS_CRC32)
     {
         m_pRootData = NULL;
@@ -249,7 +246,11 @@ ZipDir::ErrorEnum ZipDir::Cache::ReadFile (FileEntry* pFileEntry, void* pCompres
 #define AZ_RESTRICTED_SECTION_IMPLEMENTED
 #elif defined(AZ_RESTRICTED_PLATFORM)
 #define AZ_RESTRICTED_SECTION ZIPDIRCACHE_CPP_SECTION_1
-#include AZ_RESTRICTED_FILE(ZipDirCache_cpp, AZ_RESTRICTED_PLATFORM)
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/ZipDirCache_cpp_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/ZipDirCache_cpp_provo.inl"
+    #endif
 #endif
 #if defined(AZ_RESTRICTED_SECTION_IMPLEMENTED)
 #undef AZ_RESTRICTED_SECTION_IMPLEMENTED
@@ -278,7 +279,11 @@ ZipDir::ErrorEnum ZipDir::Cache::ReadFile (FileEntry* pFileEntry, void* pCompres
 #define AZ_RESTRICTED_SECTION_IMPLEMENTED
 #elif defined(AZ_RESTRICTED_PLATFORM)
 #define AZ_RESTRICTED_SECTION ZIPDIRCACHE_CPP_SECTION_2
-#include AZ_RESTRICTED_FILE(ZipDirCache_cpp, AZ_RESTRICTED_PLATFORM)
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/ZipDirCache_cpp_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/ZipDirCache_cpp_provo.inl"
+    #endif
 #endif
 #if defined(AZ_RESTRICTED_SECTION_IMPLEMENTED)
 #undef AZ_RESTRICTED_SECTION_IMPLEMENTED
@@ -301,7 +306,7 @@ ZipDir::ErrorEnum ZipDir::Cache::ReadFile (FileEntry* pFileEntry, void* pCompres
             //Intentionally empty block
         }
 #ifdef SUPPORT_RSA_AND_STREAMCIPHER_PAK_ENCRYPTION
-        else if (pFileEntry->nMethod == METHOD_STORE_AND_STREAMCIPHER_KEYTABLE || pFileEntry->nMethod == METHOD_DEFLATE_AND_STREAMCIPHER_KEYTABLE)
+        else if (pFileEntry->nMethod == ZipFile::METHOD_STORE_AND_STREAMCIPHER_KEYTABLE || pFileEntry->nMethod == ZipFile::METHOD_DEFLATE_AND_STREAMCIPHER_KEYTABLE)
         {
             unsigned char IV[ZipFile::BLOCK_CIPHER_KEY_LENGTH]; //16 byte
             int nKeyIndex = ZipEncrypt::GetEncryptionKeyIndex(pFileEntry);
@@ -362,19 +367,6 @@ ZipDir::ErrorEnum ZipDir::Cache::ReadFile (FileEntry* pFileEntry, void* pCompres
 #if !defined(_RELEASE)
                 CryWarning(VALIDATOR_MODULE_SYSTEM, VALIDATOR_ERROR, "ZipDir::Cache::ReadFile mismatch detected for file %s: Generated CRC = 0x%8X, Loaded CRC = 0x%8X", GetFileEntryName(pFileEntry), computedCRC32, pFileEntry->desc.lCRC32);
 #endif //!_RELEASE
-                IPlatformOS* pPlatformOS = gEnv->pSystem->GetPlatformOS();
-                if (pPlatformOS != NULL)
-                {
-                    pPlatformOS->HandleArchiveVerificationFailure();
-                }
-                else
-                {
-                    //Notify the POS about the detected corruption so it can handle it
-#if !defined(_RELEASE)
-                    CryWarning(VALIDATOR_MODULE_SYSTEM, VALIDATOR_COMMENT, "Issue detected before PlatformOS has been initialized. Setting a flag so that it can respond when ready.");
-#endif //!_RELEASE
-                    gEnv->pSystem->AddPlatformOSCreateFlag(( uint8 )IPlatformOS::eCF_EarlyCorruptionDetected);
-                }
                 return ZD_ERROR_CORRUPTED_DATA;
             }
 #if defined(CHECK_CRC_ONLY_ONCE)

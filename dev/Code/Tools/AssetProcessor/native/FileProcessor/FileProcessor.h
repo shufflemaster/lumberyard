@@ -42,8 +42,13 @@ namespace AssetProcessor
     public Q_SLOTS:
         //! AssetScanner changed its status
         void OnAssetScannerStatusChange(AssetScanningStatus status);
-        //! AssetScanner found a file or folder
-        void FileOfInterestFound(QString fileName);
+        
+        //! AssetScanner found a file
+        void AssessFilesFromScanner(QSet<AssetFileInfo> files);
+        
+        //! AssetScanner found a folder
+        void AssessFoldersFromScanner(QSet<AssetFileInfo> folders);
+
         //! FileWatcher detected added file
         void AssessAddedFile(QString fileName);
         //! FileWatcher detected removed file
@@ -59,10 +64,8 @@ namespace AssetProcessor
     private:
         PlatformConfiguration* m_platformConfig = nullptr;
         AZStd::shared_ptr<AssetDatabaseConnection> m_connection;
-        //! Files and their relative FileIDs present in Files table on startup
-        QMap<QString, AZ::s64> m_filesInDatabase;
-        //! Files and folders located by AssetScanner on startup
-        QList<QString> m_filesInAssetScanner;
+        //! Files and folders located by AssetScanner during a scan
+        QList<AssetFileInfo> m_filesInAssetScanner;
         QString m_normalizedCacheRootPath;
 
         bool m_shutdownSignalled = false;

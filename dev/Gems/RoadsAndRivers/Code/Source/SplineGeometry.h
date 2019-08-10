@@ -9,6 +9,7 @@
 * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 *
 */
+
 #pragma once
 
 #include <AzCore/RTTI/RTTI.h>
@@ -19,6 +20,10 @@
 #include "RoadsAndRivers/RoadsAndRiversBus.h"
 #include "RoadRiverCommon.h"
 
+namespace AzFramework
+{
+    class DebugDisplayRequests;
+}
 
 namespace RoadsAndRivers
 {
@@ -33,6 +38,7 @@ namespace RoadsAndRivers
         AZ_RTTI(SplineGeometryWidthModifier, "{F69CC9C6-5B29-4C17-8028-3167165F9EC7}");
         AZ_CLASS_ALLOCATOR_DECL
 
+        SplineGeometryWidthModifier();
         virtual ~SplineGeometryWidthModifier() = default;
         static void Reflect(AZ::ReflectContext* context);
 
@@ -47,6 +53,7 @@ namespace RoadsAndRivers
         float GetMaximumWidth() const { return m_widthInterpolator.GetMaximumWidth() + m_globalWidth; }
 
     private:
+        static const float s_maxWidth;
         AZ::EntityId m_entityId;
         LmbrCentral::SplineAttribute<float> m_variableWidth;
         float m_globalWidth = 5.0f;
@@ -96,7 +103,7 @@ namespace RoadsAndRivers
         /**
          * Draws spline geometry in the editor viewport
          */
-        void DrawGeometry(const AZ::Color& meshColor);
+        void DrawGeometry(AzFramework::DebugDisplayRequests& debugDisplay, const AZ::Color& meshColor);
         virtual void Clear();
 
         float GetSegmentLength() const { return m_segmentLength; }
@@ -126,6 +133,7 @@ namespace RoadsAndRivers
         float GetTileLength() override;
         void SetSegmentLength(float segmentLength) override;
         float GetSegmentLength() override;
+        AZStd::vector<AZ::Vector3> GetQuadVertices() const override;
 
         AZStd::vector<SplineGeometrySector> m_roadSectors;
         SplineGeometryWidthModifier m_widthModifiers;
@@ -138,6 +146,8 @@ namespace RoadsAndRivers
         virtual void RenderingPropertyModified() {};
 
         AZ::u32 WidthPropertyModifiedInternal();
+        void SegmentLengthModifiedInternal();
+        void TileLengthModifiedInternal();
     };
 
     namespace SplineGeometryMathUtils
@@ -156,7 +166,7 @@ namespace RoadsAndRivers
     namespace SplineUtils
     {
         /**
-         * Reflects all the classes needed for Roads and Rivers in the order of depencies
+         * Reflects all the classes needed for Roads and Rivers in the order of dependencies
          */
         void ReflectHelperClasses(AZ::ReflectContext* context);
     }

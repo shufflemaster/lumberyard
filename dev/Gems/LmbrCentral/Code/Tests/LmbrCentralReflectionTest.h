@@ -17,6 +17,7 @@
 #include <AzCore/Component/ComponentApplication.h>
 #include <AzFramework/Application/Application.h>
 #ifdef LMBR_CENTRAL_EDITOR
+#include <AzToolsFramework/Application/ToolsApplication.h>
 #include "LmbrCentralEditor.h"
 #endif
 
@@ -85,10 +86,10 @@ protected:
 */
 template<class ComponentT>
 class LoadEditorComponentTest
-    : public LoadReflectedObjectTest<AZ::ComponentApplication, LmbrCentral::LmbrCentralEditorModule, ComponentT>
+    : public LoadReflectedObjectTest<AzToolsFramework::ToolsApplication, LmbrCentral::LmbrCentralEditorModule, ComponentT>
 {
 public:
-    using LoadReflectedObjectTestBase = LoadReflectedObjectTest<AZ::ComponentApplication, LmbrCentral::LmbrCentralEditorModule, ComponentT>;
+    using LoadReflectedObjectTestBase = LoadReflectedObjectTest<AzToolsFramework::ToolsApplication, LmbrCentral::LmbrCentralEditorModule, ComponentT>;
 
     void SetUp() override;
     void TearDown() override;
@@ -201,9 +202,9 @@ void LoadEditorComponentTest<ComponentT>::SetUp()
 
     LoadReflectedObjectTestBase::SetUp();
     m_entity->AddComponent(aznew DummyTransformComponent());
-    if (m_object)
+    if (this->m_object)
     {
-        m_entity->AddComponent(m_object.get());
+        m_entity->AddComponent(this->m_object.get());
     }
     m_entity->Activate();
 }
@@ -212,9 +213,9 @@ template<class ComponentT>
 void LoadEditorComponentTest<ComponentT>::TearDown()
 {
     m_entity->Deactivate();
-    if (m_object)
+    if (this->m_object)
     {
-        m_entity->RemoveComponent(m_object.get());
+        m_entity->RemoveComponent(this->m_object.get());
     }
     LoadReflectedObjectTestBase::TearDown();
     m_entity.reset();

@@ -25,6 +25,7 @@
             "Module.cpp",
             "ModuleTestBus.h",
             "Outcome.cpp",
+            "Patching.cpp",
             "Performance.cpp",
             "RemappableId.cpp",
             "Rtti.cpp",
@@ -43,13 +44,19 @@
         "AzCore/Math": [
             "Math/QuaternionTests.cpp"
         ],
+        "AzCore/Memory": [
+            "Memory/HphaSchemaErrorDetection.cpp",
+            "Memory/LeakDetection.cpp"
+        ],
         "AZStd": [
             "AZStd/Algorithms.cpp",
             "AZStd/Allocators.cpp",
             "AZStd/Atomics.cpp",
             "AZStd/Any.cpp",
             "AZStd/CreateDestroy.cpp",
+            "AZStd/ConcurrentAllocators.cpp",
             "AZStd/ConcurrentContainers.cpp",
+            "AZStd/ChronoTests.cpp",
             "AZStd/DequeAndSimilar.cpp",
             "AZStd/Examples.cpp",
             "AZStd/FunctorsBind.cpp",
@@ -60,14 +67,20 @@
             "AZStd/ListsIntrusive.cpp",
             "AZStd/LockFreeQueues.cpp",
             "AZStd/LockFreeStacks.cpp",
+            "AZStd/LockTests.cpp",
             "AZStd/Ordered.cpp",
+            "AZStd/Optional.cpp",
+            "AZStd/Pair.cpp",
             "AZStd/Parallel.cpp",
+            "AZStd/ScopedLockTests.cpp",
             "AZStd/SetsIntrusive.cpp",
             "AZStd/SmartPtr.cpp",
             "AZStd/String.cpp",
             "AZStd/TypeTraits.cpp",
             "AZStd/Tuple.cpp",
             "AZStd/UserTypes.h",
+            "AZStd/Variant.cpp",
+            "AZStd/VariantSerialization.cpp",
             "AZStd/VectorAndArray.cpp"
         ]
     }

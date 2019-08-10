@@ -128,31 +128,35 @@ static DXGI_FORMAT AttributeTypeDXGIFormatTable[(unsigned int)AZ::Vertex::Attrib
 
 AZStd::vector<D3D11_INPUT_ELEMENT_DESC> GetD3D11Declaration(const AZ::Vertex::Format& vertexFormat)
 {
-    AZStd::vector<AZ::Vertex::Attribute> vertexAttributes = vertexFormat.GetAttributes();
     AZStd::vector<D3D11_INPUT_ELEMENT_DESC> declaration;
     uint offset = 0;
     // semanticIndices is a vector of zeros that will be incremented for each attribute that shares a usage/semantic name
-    AZStd::vector<uint> semanticIndices = AZStd::vector<uint>((uint)AZ::Vertex::AttributeUsage::NumTypes, 0);
-    for (AZ::Vertex::Attribute attribute : vertexAttributes)
+    uint semanticIndices[(uint)AZ::Vertex::AttributeUsage::NumUsages] = { 0 };
+
+    uint32 attributeCount = 0;
+    const uint8* vertexAttributes = vertexFormat.GetAttributes(attributeCount);
+    for (uint ii = 0; ii < attributeCount; ++ii)
     {
+        const uint8 attribute = vertexAttributes[ii];
+
         D3D11_INPUT_ELEMENT_DESC elementDescription;
-        uint usageIndex = (uint)attribute.GetUsage();
-        uint typeIndex = (uint)attribute.GetType();
+        AZ::Vertex::AttributeUsage attributeUsage = AZ::Vertex::Attribute::GetUsage(attribute);
+        AZ::Vertex::AttributeType attributeType = AZ::Vertex::Attribute::GetType(attribute);
         // TEXCOORD semantic name used for Tangents and BiTangents.
-        if (usageIndex == (uint)AZ::Vertex::AttributeUsage::Tangent || usageIndex == (uint)AZ::Vertex::AttributeUsage::BiTangent)
+        if (attributeUsage == AZ::Vertex::AttributeUsage::Tangent || attributeUsage == AZ::Vertex::AttributeUsage::BiTangent)
         {
-            usageIndex = (uint)AZ::Vertex::AttributeUsage::TexCoord;
+            attributeUsage = AZ::Vertex::AttributeUsage::TexCoord;
         }
-        elementDescription.SemanticName = AZ::Vertex::AttributeUsageDataTable[usageIndex].semanticName.c_str();
+        elementDescription.SemanticName = AZ::Vertex::Attribute::GetSemanticName(attribute).c_str();
 
         // Get the number of inputs with this usage up to this point, then increment that number
-        elementDescription.SemanticIndex = semanticIndices[usageIndex];
-        semanticIndices[usageIndex]++;
+        elementDescription.SemanticIndex = semanticIndices[(uint)attributeUsage];
+        semanticIndices[(uint)attributeUsage]++;
 
-        elementDescription.Format = AttributeTypeDXGIFormatTable[typeIndex];
+        elementDescription.Format = AttributeTypeDXGIFormatTable[(uint)attributeType];
 
         elementDescription.AlignedByteOffset = offset;
-        offset += attribute.GetByteLength();
+        offset += AZ::Vertex::Attribute::GetByteLength(attribute);
 
         elementDescription.InputSlot = 0;
         elementDescription.InputSlotClass = D3D11_INPUT_PER_VERTEX_DATA;
@@ -167,23 +171,16 @@ AZStd::vector<D3D11_INPUT_ELEMENT_DESC> GetD3D11Declaration(const AZ::Vertex::Fo
 void CD3D9Renderer::EF_OnDemandVertexDeclaration(SOnDemandD3DVertexDeclaration& out,
     const int nStreamMask, const AZ::Vertex::Format& vertexFormat, const bool bMorph, const bool bInstanced)
 {
-    //  iLog->Log("EF_OnDemandVertexDeclaration %d %d %d (DEBUG test - shouldn't log too often)",nStreamMask,vertexformat,bMorph?1:0);
-
-    if (m_RP.m_D3DVertexDeclarations.count(vertexFormat.GetCRC()) == 0)
-    {
-        m_RP.m_D3DVertexDeclarations[vertexFormat.GetCRC()].m_Declaration = GetD3D11Declaration(vertexFormat);
-        m_RP.m_crcVertexFormatLookupTable[vertexFormat.GetCRC()] = vertexFormat;
-        AZ_Warning("Rendering", false, "Vertex declaration cache miss. Building declaration for %s on the fly. Consider pre-baking this vertex format declaration.", vertexFormat.GetName());
-    }
-
     uint32 j;
+
+    AZStd::vector<D3D11_INPUT_ELEMENT_DESC>& declarationElements = m_RP.m_D3DVertexDeclarations[vertexFormat.GetEnum()].m_Declaration;
 
     if (bInstanced)
     {
         // Create instanced vertex declaration
-        for (j = 0; j < m_RP.m_D3DVertexDeclarations[vertexFormat.GetCRC()].m_Declaration.size(); j++)
+        for (j = 0; j <declarationElements.size(); j++)
         {
-            D3D11_INPUT_ELEMENT_DESC elem = m_RP.m_D3DVertexDeclarations[vertexFormat.GetCRC()].m_Declaration[j];
+            D3D11_INPUT_ELEMENT_DESC elem = declarationElements[j];
             elem.InputSlotClass = D3D11_INPUT_PER_INSTANCE_DATA;
             elem.InstanceDataStepRate = 1;
             out.m_Declaration.push_back(elem);
@@ -191,9 +188,9 @@ void CD3D9Renderer::EF_OnDemandVertexDeclaration(SOnDemandD3DVertexDeclaration& 
     }
     else
     {
-        for (j = 0; j < m_RP.m_D3DVertexDeclarations[vertexFormat.GetCRC()].m_Declaration.size(); j++)
+        for (j = 0; j < declarationElements.size(); j++)
         {
-            out.m_Declaration.push_back(m_RP.m_D3DVertexDeclarations[vertexFormat.GetCRC()].m_Declaration[j]);
+            out.m_Declaration.push_back(declarationElements[j]);
         }
     }
 
@@ -226,29 +223,15 @@ void CD3D9Renderer::EF_OnDemandVertexDeclaration(SOnDemandD3DVertexDeclaration& 
     }
 }
 
-void CD3D9Renderer::AddVertexFormatToRenderPipeline(const AZ::Vertex::Format& vertexFormat)
-{
-    // Keep the vertex declaration and a copy of the vertex format object that can be retreived via the crc
-    m_RP.m_D3DVertexDeclarations[vertexFormat.GetCRC()].m_Declaration = GetD3D11Declaration(vertexFormat);
-    m_RP.m_crcVertexFormatLookupTable[vertexFormat.GetCRC()] = vertexFormat;
-}
 
 void CD3D9Renderer::EF_InitD3DVertexDeclarations()
 {
     for (int nFormat = 1; nFormat < eVF_Max; ++nFormat)
     {
         AZ::Vertex::Format vertexFormat = AZ::Vertex::Format((EVertexFormat)nFormat);
-        AddVertexFormatToRenderPipeline(vertexFormat);
+        m_RP.m_D3DVertexDeclarations[nFormat].m_Declaration = GetD3D11Declaration(vertexFormat);
+        m_RP.m_vertexFormats[nFormat] = vertexFormat;
     }
-
-    // Custom vertex format for multiple uv sets
-    AZ::Vertex::Format vertexFormat = AZ::Vertex::Format({
-                AZ::Vertex::Attribute(AZ::Vertex::AttributeUsage::Position, AZ::Vertex::AttributeType::Float32_3),
-                AZ::Vertex::Attribute(AZ::Vertex::AttributeUsage::Color, AZ::Vertex::AttributeType::Byte_4),
-                AZ::Vertex::Attribute(AZ::Vertex::AttributeUsage::TexCoord, AZ::Vertex::AttributeType::Float32_2),
-                AZ::Vertex::Attribute(AZ::Vertex::AttributeUsage::TexCoord, AZ::Vertex::AttributeType::Float32_2)
-            });
-    AddVertexFormatToRenderPipeline(vertexFormat);
 
     //=============================================================================
     // Additional streams declarations:
@@ -576,6 +559,19 @@ void CD3D9Renderer::EF_Restore()
     }
 }
 
+void CD3D9Renderer::OnRendererFreeResources(int flags)
+{
+    // If texture resources are about to be freed by the renderer
+    if (flags & FRR_TEXTURES)
+    {
+        // Release the occlusion readback textures before CTexture::Shutdown is called
+        for (size_t idx = 0; idx < s_numOcclusionReadbackTextures; idx++)
+        {
+            m_occlusionData[idx].Destroy();
+        }
+    }
+}
+
 // Shutdown shaders pipeline
 void CD3D9Renderer::FX_PipelineShutdown(bool bFastShutdown)
 {
@@ -598,11 +594,10 @@ void CD3D9Renderer::FX_PipelineShutdown(bool bFastShutdown)
     m_RP.m_SysVertexPool[1].Free();
     m_RP.m_SysIndexPool[1].Free();
 #endif
-    for (auto& crcVertexFormatPair : m_RP.m_D3DVertexDeclarations)
+    for (int index=0; index<eVF_Max; ++index)
     {
-        crcVertexFormatPair.second.m_Declaration.clear();
+        m_RP.m_D3DVertexDeclarations[index].m_Declaration.clear();
     }
-    m_RP.m_D3DVertexDeclarations.clear();
 
     // Loop through the 2D array of hash maps
     for (auto& stream : m_RP.m_D3DVertexDeclarationCache)
@@ -959,7 +954,11 @@ void CD3D9Renderer::EF_SetSrgbWrite(bool sRGBWrite)
 
 #if defined(AZ_RESTRICTED_PLATFORM)
 #define AZ_RESTRICTED_SECTION D3DRENDPIPELINE_CPP_SECTION_1
-#include AZ_RESTRICTED_FILE(D3DRendPipeline_cpp, AZ_RESTRICTED_PLATFORM)
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/D3DRendPipeline_cpp_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/D3DRendPipeline_cpp_provo.inl"
+    #endif
 #endif
 #if defined(AZ_RESTRICTED_SECTION_IMPLEMENTED)
 #undef AZ_RESTRICTED_SECTION_IMPLEMENTED
@@ -1018,7 +1017,6 @@ void CD3D9Renderer::CopyFramebufferDX11(CTexture* pDst, ID3D11Resource* pSrcReso
 
     GetDeviceContext(); // explicit flush as temp target gets released in next line
     SAFE_RELEASE(shaderResView);
-    CTexture::ResetTMUs(); // Due to PSSetSamplers call state caching will be broken
 }
 #endif
 
@@ -1110,7 +1108,11 @@ void CD3D9Renderer::FX_ScreenStretchRect(CTexture* pDst, CTexture* pHDRSrc)
                 {
 #if defined(AZ_RESTRICTED_PLATFORM)
 #define AZ_RESTRICTED_SECTION D3DRENDPIPELINE_CPP_SECTION_2
-#include AZ_RESTRICTED_FILE(D3DRendPipeline_cpp, AZ_RESTRICTED_PLATFORM)
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/D3DRendPipeline_cpp_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/D3DRendPipeline_cpp_provo.inl"
+    #endif
 #endif
 #if defined(AZ_RESTRICTED_SECTION_IMPLEMENTED)
 #undef AZ_RESTRICTED_SECTION_IMPLEMENTED
@@ -1150,7 +1152,11 @@ void CD3D9Renderer::FX_ScreenStretchRect(CTexture* pDst, CTexture* pHDRSrc)
                 }
 #if defined(AZ_RESTRICTED_PLATFORM)
 #define AZ_RESTRICTED_SECTION D3DRENDPIPELINE_CPP_SECTION_3
-#include AZ_RESTRICTED_FILE(D3DRendPipeline_cpp, AZ_RESTRICTED_PLATFORM)
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/D3DRendPipeline_cpp_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/D3DRendPipeline_cpp_provo.inl"
+    #endif
 #endif
 #if defined(AZ_RESTRICTED_SECTION_IMPLEMENTED)
 #undef AZ_RESTRICTED_SECTION_IMPLEMENTED
@@ -1323,6 +1329,15 @@ void CD3D9Renderer::FX_ProcessHalfResParticlesRenderList(int nList, void(* Rende
                 m_RP.m_ForceStateOr = nOldForceStateOr;
                 m_RP.m_PersFlags2 &= ~RBPF2_HALFRES_PARTICLES;
 
+#if defined(CRY_USE_METAL)
+                //In metal Clear calls are cached until a draw call is made. If nothing is rendered do a manual clear
+                if (m_RP.m_RendNumVerts == 0)
+                {
+                    FX_Commit();
+                    FX_ClearTargetRegion();
+                }
+#endif
+
                 FX_PopRenderTarget(0);
 
                 {
@@ -1355,7 +1370,11 @@ void CD3D9Renderer::FX_ProcessHalfResParticlesRenderList(int nList, void(* Rende
                     PostProcessUtils().SetTexture(pZTargetScaled, 3, FILTER_POINT);
 
                     FX_SetState(nStates);
+#if AZ_RENDER_TO_TEXTURE_GEM_ENABLED
+                    PostProcessUtils().DrawFullScreenTri(GetWidth(), GetHeight());
+#else
                     PostProcessUtils().DrawFullScreenTri(m_width, m_height);
+#endif // if AZ_RENDER_TO_TEXTURE_GEM_ENABLED
 
                     PostProcessUtils().ShEndPass();
                 }
@@ -1373,7 +1392,7 @@ void CD3D9Renderer::FX_ProcessHalfResParticlesRenderList(int nList, void(* Rende
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 // Checks if we need to enable velocity pass.
-bool CD3D9Renderer::IsVelocityPassEnabled()
+bool CD3D9Renderer::IsVelocityPassEnabled() const
 {
     bool takingScreenShot = (m_screenShotType != 0);
     bool bUseMotionVectors = (CV_r_MotionBlur || (FX_GetAntialiasingType() & eAT_TEMPORAL_MASK) != 0) && CV_r_MotionVectors && (!takingScreenShot || CV_r_MotionBlurScreenShot);
@@ -1478,7 +1497,11 @@ bool CD3D9Renderer::FX_ZScene(bool bEnable, bool bClearZBuffer, bool bRenderNorm
             CTexture* pSceneSpecular = CTexture::s_ptexSceneSpecular;
 #if defined(AZ_RESTRICTED_PLATFORM)
 #define AZ_RESTRICTED_SECTION D3DRENDPIPELINE_CPP_SECTION_4
-#include AZ_RESTRICTED_FILE(D3DRendPipeline_cpp, AZ_RESTRICTED_PLATFORM)
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/D3DRendPipeline_cpp_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/D3DRendPipeline_cpp_provo.inl"
+    #endif
 #endif
             FX_PushRenderTarget(nDiffuseTargetID + 1, pSceneSpecular, NULL);
 
@@ -1567,13 +1590,8 @@ void CD3D9Renderer::FX_GmemTransition(const EGmemTransitions transition)
 
     CTexture* gmemSceneTarget = CTexture::s_ptexSceneSpecularAccMap;
 
-    bool const bHdrEnabled = IsHDRModeEnabled();
-
     int const currentGmemPath = FX_GetEnabledGmemPath(nullptr);
     assert(FX_GetEnabledGmemPath(nullptr));
-
-    // Following var keeps track of whether the LDR buffer was already resolved to the back-buffer
-    static bool gmemSceneTargetWasResolved = false;
 
     // COMMON FUNCTIONS ///////////////////////////////////////////////////////////////////////////
     auto UnbindGmemRts = [this](int const startRT, int const endRT)
@@ -1590,31 +1608,138 @@ void CD3D9Renderer::FX_GmemTransition(const EGmemTransitions transition)
             }
         };
 
-    auto ProcessPassesThatDontFitGMEM = [](bool const deferredPasses)
+    auto BindGBufferRts = [this, gmemSceneTarget](int currentGmemPath, int* outVelocityRT, int* outDepthStencilRT, bool forceLoad = false)
+    {
+        /* Bind RTs
+        *
+        * 256bpp:
+        * (0) Specular L-Buffer (used as scene-target during GMEM sections)
+        * (1) Diffuse
+        * (2) Spec
+        * (3) Stencil / Linear Depth
+        * (4) Diffuse L-Buffer
+        * (5) Normals
+        *
+        * 128bpp:
+        * (0) Normals
+        * (1) Diffuse
+        * (2) Spec
+        * (3) Stencil / Linear Depth
+        */
+        const int invalidRT = -1;
+        const int defaultDepthRT = 3;
+        const int maxGmemRTCount = 6;
+
+        int velocityBufferRT = invalidRT;
+        int depthStencilRT = defaultDepthRT;
+        AZStd::vector<bool> dontCareColorLoad;
+        AZStd::vector<bool> dontCareColorSave;
+        AZStd::vector<bool> dontCareDepthStencilLoad = { false, false };
+        AZStd::vector<bool> dontCareDepthStencilSave = { false, false };
+
+        dontCareColorLoad.reserve(maxGmemRTCount);
+        dontCareColorSave.reserve(maxGmemRTCount);
+        if (eGT_256bpp_PATH == currentGmemPath)
         {
-            GetUtils().DownsampleDepth(CTexture::s_ptexGmemStenLinDepth, CTexture::s_ptexZTargetScaled, true);
-            GetUtils().DownsampleDepth(CTexture::s_ptexZTargetScaled, CTexture::s_ptexZTargetScaled2, false);
+            FX_PushRenderTarget(0, gmemSceneTarget, &m_DepthBufferOrigMSAA, -1, true);
+            FX_PushRenderTarget(1, CTexture::s_ptexSceneDiffuse, NULL);
+            FX_PushRenderTarget(2, CTexture::s_ptexSceneSpecular, NULL);
+            FX_PushRenderTarget(3, CTexture::s_ptexGmemStenLinDepth, NULL);
+            FX_PushRenderTarget(4, CTexture::s_ptexCurrentSceneDiffuseAccMap, NULL);
+            FX_PushRenderTarget(5, CTexture::s_ptexSceneNormalsMap, NULL);
+
+            dontCareColorLoad = { true,  true, true, true,  true, true };
+            dontCareColorSave = { false, true, true, false, true, true };
+        }
+        else if (eGT_128bpp_PATH == currentGmemPath)
+        {
+            FX_PushRenderTarget(0, CTexture::s_ptexSceneNormalsMap, &m_DepthBufferOrigMSAA, -1, true);
+            FX_PushRenderTarget(1, CTexture::s_ptexSceneDiffuse, NULL);
+            FX_PushRenderTarget(2, CTexture::s_ptexSceneSpecular, NULL);
+
+            dontCareColorLoad = { true,  true, true, true };
+            dontCareColorSave = { false, false, false, false };
+
+            if (IsVelocityPassEnabled())
+            {
+                if (RenderCapabilities::SupportsRenderTargets(s_gmemLargeRTCount))
+                {
+                    dontCareColorLoad.resize(5);
+                    dontCareColorSave.resize(5);
+                    depthStencilRT = 3;
+                    velocityBufferRT = 4;
+                }
+                else
+                {
+                    depthStencilRT = -1;
+                    velocityBufferRT = 3;
+                }
+            }
+
+            if (velocityBufferRT != invalidRT)
+            {
+                FX_PushRenderTarget(velocityBufferRT, GetUtils().GetVelocityObjectRT(), NULL);
+                dontCareColorLoad[velocityBufferRT] = true;
+                dontCareColorSave[velocityBufferRT] = false;
+            }
+
+            if (depthStencilRT != invalidRT)
+            {
+                FX_PushRenderTarget(depthStencilRT, CTexture::s_ptexGmemStenLinDepth, NULL);
+                dontCareColorLoad[depthStencilRT] = true;
+                dontCareColorSave[depthStencilRT] = false;
+            }
+        }
+
+        if (forceLoad)
+        {
+            std::fill(dontCareColorLoad.begin(), dontCareColorLoad.end(), false);
+            std::fill(dontCareDepthStencilLoad.begin(), dontCareDepthStencilLoad.end(), false);
+        }
+
+        for (int i = 0; i < dontCareColorLoad.size(); ++i)
+        {
+            FX_SetColorDontCareActions(i, dontCareColorLoad[i], dontCareColorSave[i]);
+        }
+
+        FX_SetDepthDontCareActions(0, dontCareDepthStencilLoad[0], dontCareDepthStencilSave[0]);
+        FX_SetStencilDontCareActions(0, dontCareDepthStencilLoad[1], dontCareDepthStencilSave[1]);
+        
+        if (outVelocityRT)
+        {
+            *outVelocityRT = velocityBufferRT;
+        }
+
+        if (outDepthStencilRT)
+        {
+            *outDepthStencilRT = depthStencilRT;
+        }
+    };
+
+    auto ProcessPassesThatDontFitGMEM = [this](bool const linearizeDepth, bool const downsampleDepth, bool const deferredPasses)
+        {
+            if (linearizeDepth)
+            {
+                FX_LinearizeDepth(CTexture::s_ptexGmemStenLinDepth);
+            }
+
+            if (downsampleDepth)
+            {
+                GetUtils().DownsampleDepth(CTexture::s_ptexGmemStenLinDepth, CTexture::s_ptexZTargetScaled, true);
+                GetUtils().DownsampleDepth(CTexture::s_ptexZTargetScaled, CTexture::s_ptexZTargetScaled2, true);
+                static ICVar* checkOcclusion = gEnv->pConsole->GetCVar("e_CheckOcclusion");
+                if(checkOcclusion->GetIVal())
+                {
+                    //Downsample to the occlusion buffer dimensions
+                    GetUtils().DownsampleDepth(CTexture::s_ptexZTargetScaled2, m_occlusionData[m_occlusionBufferIndex].m_zTargetReadback, true);
+                }
+            }
 
             if (deferredPasses)
             {
                 CDeferredShading::Instance().DirectionalOcclusionPass();
                 CDeferredShading::Instance().ScreenSpaceReflectionPass();
             }
-        };
-
-    auto ResolveLDROutputToBackBuffer = [this](CTexture*& gmemSceneTarget)
-        {
-            assert (!gmemSceneTargetWasResolved);
-
-            FX_SetDepthDontCareActions(0, true, true);
-            FX_SetStencilDontCareActions(0, true, true);
-
-            PostProcessUtils().CopyTextureToScreen(gmemSceneTarget);
-
-            FX_SetDepthDontCareActions(0, false, false);
-            FX_SetStencilDontCareActions(0, false, false);
-
-            gmemSceneTargetWasResolved = true;
         };
 
     auto ResetGMEMDontCareActions = [this](int const endRT)
@@ -1639,9 +1764,6 @@ void CD3D9Renderer::FX_GmemTransition(const EGmemTransitions transition)
     {
     case eGT_PRE_Z:
     {
-        // Reset vars
-        gmemSceneTargetWasResolved = false;
-
         // Setup deferred renderer's lights and shadows for GMEM path
         assert(CDeferredShading::IsValid());
         if (IsShadowPassEnabled())
@@ -1650,95 +1772,51 @@ void CD3D9Renderer::FX_GmemTransition(const EGmemTransitions transition)
         }
 
         RT_SetViewport(0, 0, m_MainViewport.nWidth, m_MainViewport.nHeight);
-
-        /* Bind RTs
-         *
-         * 256bpp:
-         * (0) Specular L-Buffer (used as scene-target during GMEM sections)
-         * (1) Diffuse
-         * (2) Spec
-         * (3) Stencil / Linear Depth
-         * (4) Diffuse L-Buffer
-         * (5) Normals
-         *
-         * 128bpp:
-         * (0) Normals
-         * (1) Diffuse
-         * (2) Spec
-         * (3) Stencil / Linear Depth
-         */
-        int depthStencilRT = -1;
-        const int* gmemSlots = s_gmemRendertargetSlots[currentGmemPath];
-        if (eGT_256bpp_PATH == currentGmemPath)
-        {
-            FX_PushRenderTarget(gmemSlots[eGT_SpecularLight], gmemSceneTarget, &m_DepthBufferOrigMSAA, -1, true);
-            FX_PushRenderTarget(gmemSlots[eGT_Diffuse], CTexture::s_ptexSceneDiffuse, NULL);
-            FX_PushRenderTarget(gmemSlots[eGT_Specular], CTexture::s_ptexSceneSpecular, NULL);
-            FX_PushRenderTarget(gmemSlots[eGT_DepthStencil], CTexture::s_ptexGmemStenLinDepth, NULL);
-            FX_PushRenderTarget(gmemSlots[eGT_DiffuseLight], CTexture::s_ptexCurrentSceneDiffuseAccMap, NULL);
-            FX_PushRenderTarget(gmemSlots[eGT_Normals], CTexture::s_ptexSceneNormalsMap, NULL);
-
-            // Set don't care actions
-            FX_SetColorDontCareActions(gmemSlots[eGT_SpecularLight], true, false);  // Need store operation as the final output of light calculations goes here
-            FX_SetColorDontCareActions(gmemSlots[eGT_Diffuse], true, true);
-            FX_SetColorDontCareActions(gmemSlots[eGT_Specular], true, true);
-            FX_SetColorDontCareActions(gmemSlots[eGT_DepthStencil], true, false); // Need store operation here as this contains linear depth and is needed for the hair transparent pass after Lighting.
-            FX_SetColorDontCareActions(gmemSlots[eGT_DiffuseLight], true, true);
-            FX_SetColorDontCareActions(gmemSlots[eGT_Normals], true, true);
-            FX_SetDepthDontCareActions(0, false, false);
-            FX_SetStencilDontCareActions(0, false, false);
-        }
-        else if (eGT_128bpp_PATH == currentGmemPath)
-        {
-            FX_PushRenderTarget(gmemSlots[eGT_Normals], CTexture::s_ptexSceneNormalsMap, &m_DepthBufferOrigMSAA, -1, true);
-            FX_PushRenderTarget(gmemSlots[eGT_Diffuse], CTexture::s_ptexSceneDiffuse, NULL);
-            FX_PushRenderTarget(gmemSlots[eGT_Specular], CTexture::s_ptexSceneSpecular, NULL);
-            FX_PushRenderTarget(gmemSlots[eGT_DepthStencil], CTexture::s_ptexGmemStenLinDepth, NULL);
-            
-            //Push the velocity buffer.
-            if(RenderCapabilities::SupportsRenderTargets(5))
-            {
-                auto velocityRenderTarget = GetUtils().GetVelocityObjectRT();
-                FX_PushRenderTarget(gmemSlots[eGT_VelocityBuffer], velocityRenderTarget, NULL);
-                if (CRenderer::CV_r_ClearGMEMGBuffer == 2)
-                {
-                    //Clear out the velocity buffer to half2(1.0, 1.0)
-                    FX_SetColorDontCareActions(gmemSlots[eGT_VelocityBuffer], false, false);
-                    FX_ClearTarget(GetUtils().GetVelocityObjectRT(), Clr_White);
-                }
-                else
-                {
-                    FX_SetColorDontCareActions(gmemSlots[eGT_VelocityBuffer], true, false);
-                }
-            }
-
-            // Set don't care actions
-            FX_SetColorDontCareActions(gmemSlots[eGT_Normals], true, false);
-            FX_SetColorDontCareActions(gmemSlots[eGT_Diffuse], true, false);
-            FX_SetColorDontCareActions(gmemSlots[eGT_Specular], true, false);
-            FX_SetColorDontCareActions(gmemSlots[eGT_DepthStencil], true, false);
-            
-            FX_SetDepthDontCareActions(0, false, false);
-            FX_SetStencilDontCareActions(0, false, false);
-        }
+        int velocityRT, depthStencilRT;
+        BindGBufferRts(currentGmemPath, &velocityRT, &depthStencilRT);
 
         // Clear depth stencil
         EF_ClearTargetsImmediately(FRT_CLEAR_DEPTH | FRT_CLEAR_STENCIL, 1.0f, 1);
         m_nStencilMaskRef = 1;
 
         // Custom clear GMEM G-Buffer if requested
-        if (CRenderer::CV_r_ClearGMEMGBuffer == 1)
+        if (depthStencilRT >= 0)
         {
-            PROFILE_LABEL_SCOPE("GMEM G-BUFFER CLEAR");
-            FX_SetState(GS_NODEPTHTEST | GS_COLMASK_RGB | GS_BLSRC_ONE | GS_BLDST_ZERO);
-            RT_SetViewport(0, 0, m_MainViewport.nWidth, m_MainViewport.nHeight);
-            PostProcessUtils().ClearGmemGBuffer();
+            if (CRenderer::CV_r_ClearGMEMGBuffer == 1)
+            {
+                PROFILE_LABEL_SCOPE("GMEM G-BUFFER CLEAR");
+                FX_SetState(GS_NODEPTHTEST | GS_COLMASK_RGB | GS_BLSRC_ONE | GS_BLDST_ZERO);
+                RT_SetViewport(0, 0, m_MainViewport.nWidth, m_MainViewport.nHeight);
+                PostProcessUtils().ClearGmemGBuffer();
+            }
+            else if (CRenderer::CV_r_ClearGMEMGBuffer == 2)
+            {
+                //Linear depth is set to be cleared to 1.0f. x (linear depth) = 1, y(stencil id) = 0.
+                FX_SetColorDontCareActions(depthStencilRT, false, false);
+                FX_ClearTarget(CTexture::s_ptexGmemStenLinDepth, ColorF(1.000f, 0.000f, 0.000f));
+
+                if (velocityRT > 0)
+                {
+                    // Clear out the velocity buffer to half2(1.0, 1.0)
+                    FX_SetColorDontCareActions(velocityRT, false, false);
+                    FX_ClearTarget(GetUtils().GetVelocityObjectRT(), Clr_White);
+                }
+            }
         }
-        else if(CRenderer::CV_r_ClearGMEMGBuffer == 2)
+
+        break;
+    }
+    case eGT_POST_GBUFFER:
+    {
+        if (FX_GmemGetDepthStencilMode() == eGDSM_Texture)
         {
-            //Linear depth is set to be cleared to 1.0f. x (linear depth) = 1, y(stencil id) = 0.
-            FX_SetColorDontCareActions(gmemSlots[eGT_DepthStencil], false, false);
-            FX_ClearTarget(CTexture::s_ptexGmemStenLinDepth, ColorF (1.000f, 0.000f, 0.000f));
+            // Since we can't fetch the depth/stencil from the buffer we need to linearize it now.
+            // The linearized depth is used by the deferred decal, snow and rain passes.
+            // This will flush the Gbuffer out.
+            int renderTargetsToUnbind = IsVelocityPassEnabled() && RenderCapabilities::SupportsRenderTargets(s_gmemLargeRTCount) ? 4 : 3;
+            UnbindGmemRts(0, renderTargetsToUnbind);
+            ProcessPassesThatDontFitGMEM(true, true, false);
+            BindGBufferRts(currentGmemPath, nullptr, nullptr, true);
         }
         break;
     }
@@ -1753,16 +1831,13 @@ void CD3D9Renderer::FX_GmemTransition(const EGmemTransitions transition)
          */
         if (eGT_128bpp_PATH == currentGmemPath)
         {
-            int renderTargetsToUnbind = 3;
-            if(RenderCapabilities::SupportsRenderTargets(5))
-            {
-                renderTargetsToUnbind = 4;
-            }
-            
+            int renderTargetsToUnbind = IsVelocityPassEnabled() && RenderCapabilities::SupportsRenderTargets(s_gmemLargeRTCount) ? 4 : 3;
+           
             ResetGMEMDontCareActions(renderTargetsToUnbind);
             UnbindGmemRts(0, renderTargetsToUnbind);
 
-            ProcessPassesThatDontFitGMEM(true);
+            EGmemDepthStencilMode depthStencilMode = FX_GmemGetDepthStencilMode();
+            ProcessPassesThatDontFitGMEM(depthStencilMode == eGDSM_DepthStencilBuffer, depthStencilMode != eGDSM_Texture, true);
 
             // Bind RTs
             FX_PushRenderTarget(s_gmemRendertargetSlots[currentGmemPath][eGT_SpecularLight], gmemSceneTarget, &m_DepthBufferOrigMSAA, -1, true);
@@ -1786,101 +1861,29 @@ void CD3D9Renderer::FX_GmemTransition(const EGmemTransitions transition)
     }
     case eGT_POST_DEFERRED_PRE_FORWARD:
     {
-        // Only 1 RT was bound if using PLS... we can't support CRenderer::CV_r_GMEM_LDR_ForceResolvePostComposition
-        if (!RenderCapabilities::SupportsPLSExtension())
+        ResetGMEMDontCareActions(eGT_256bpp_PATH == currentGmemPath ? 5 : 1);
+
+        // Unbind all but the scene target
+        // Scene target already bound if using PLS... just need to toggle PLS off
+        if (RenderCapabilities::SupportsPLSExtension())
         {
-            if (!bHdrEnabled && CRenderer::CV_r_GMEM_LDR_ForceResolvePostComposition)
-            {
-                // TODO: benchmark CRenderer::CV_r_GMEM_LDR_ForceResolvePostComposition on/off
-
-                ResetGMEMDontCareActions(eGT_256bpp_PATH == currentGmemPath ? 5 : 1);
-
-                // Unbind all
-                UnbindGmemRts(0, eGT_256bpp_PATH == currentGmemPath ? 5 : 1);
-
-                ResolveLDROutputToBackBuffer(gmemSceneTarget);
-
-                // Rebind buffers
-                FX_PushRenderTarget(1, CTexture::s_ptexCurrentSceneDiffuseAccMap, NULL);
-
-                if (eGT_256bpp_PATH == currentGmemPath)
-                {
-                    FX_PushRenderTarget(s_gmemRendertargetSlots[eGT_256bpp_PATH][eGT_DepthStencil], CTexture::s_ptexGmemStenLinDepth, NULL);
-                }
-            }
-        }
-
-        break;
-    }
-    case eGT_PRE_WATER:
-    {
-        if (!gmemSceneTargetWasResolved)
-        {
-            ResetGMEMDontCareActions(eGT_256bpp_PATH == currentGmemPath ? 5 : 1);
-
-            // Unbind all but the scene target
-            // Scene target already bound if using PLS... just need to toggle PLS off
-            if (RenderCapabilities::SupportsPLSExtension())
-            {
-                FX_TogglePLS(false);
-            }
-            else
-            {
-                UnbindGmemRts(1, eGT_256bpp_PATH == currentGmemPath ? 5 : 1);
-            }
+            FX_TogglePLS(false);
         }
         else
         {
-            assert(CRenderer::CV_r_GMEM_LDR_ForceResolvePostComposition);
-
-            // Unbind RTs we bound in eGT_POST_DEFERRED_PRE_FORWARD
-            FX_PopRenderTarget(1);
-
-            if (eGT_256bpp_PATH == currentGmemPath)
-            {
-                FX_PopRenderTarget(s_gmemRendertargetSlots[eGT_256bpp_PATH][eGT_DepthStencil]);
-            }
+            UnbindGmemRts(1, eGT_256bpp_PATH == currentGmemPath ? 5 : 1);
         }
 
         if (eGT_256bpp_PATH == currentGmemPath)
         {
-            ProcessPassesThatDontFitGMEM(false);
-        }
-
-        break;
-    }
-    case eGT_POST_WATER:
-    {
-        // Push the depth stencil render target for the hair transparent pass. This render target only remains in gmem for the 256bpp path.
-        if (eGT_256bpp_PATH == currentGmemPath)
-        {
-            // We push the depth/stencil to the slot 1 (instead of 3) because Qualcomm drivers crash if have a gap with no render targets
-            // in the framebuffer and you are fetching a value from it.
-            FX_PushRenderTarget(1, CTexture::s_ptexGmemStenLinDepth, NULL);
-            FX_SetColorDontCareActions(1, false, true);
+            ProcessPassesThatDontFitGMEM(false, true, false);
         }
         break;
     }
-
     case eGT_POST_AW_TRANS_PRE_POSTFX:
     {
-        //This pop is to match the push in eGT_POST_WATER
-        if (eGT_256bpp_PATH == currentGmemPath)
-        {
-            FX_PopRenderTarget(1);
-        }
-
-        if (!gmemSceneTargetWasResolved)
-        {
-            // Unbind scene target
-            UnbindGmemRts(0, 0);
-
-            // If in LDR then we need to resolve to the back-buffer
-            if (!bHdrEnabled)
-            {
-                ResolveLDROutputToBackBuffer(gmemSceneTarget);
-            }
-        }
+        // Unbind scene target
+        UnbindGmemRts(0, 0);
 
         // TODO: Behavior for HDR/PostFX passes
         break;
@@ -1964,6 +1967,40 @@ CD3D9Renderer::EGmemPath CD3D9Renderer::FX_GetEnabledGmemPath(CD3D9Renderer::EGm
     }
 
     return enabledPath;
+}
+
+CD3D9Renderer::EGmemDepthStencilMode CD3D9Renderer::FX_GmemGetDepthStencilMode() const
+{
+    if (m_gmemDepthStencilMode == eGDSM_Invalid)
+    {
+        switch (FX_GetEnabledGmemPath(nullptr))
+        {
+        case eGT_256bpp_PATH:
+            m_gmemDepthStencilMode = eGDSM_RenderTarget;
+            break;
+        case eGT_128bpp_PATH:
+        {
+            bool hasEnoughRTs = true;
+#if defined(OPENGL_ES) || defined(CRY_USE_METAL)
+            hasEnoughRTs &= RenderCapabilities::SupportsRenderTargets(s_gmemLargeRTCount);
+#endif
+            if (IsVelocityPassEnabled() && !hasEnoughRTs)
+            {
+                m_gmemDepthStencilMode = RenderCapabilities::GetFrameBufferFetchCapabilities().test(RenderCapabilities::FBF_DEPTH) ? eGDSM_DepthStencilBuffer : eGDSM_Texture;
+            }
+            else
+            {
+                m_gmemDepthStencilMode = eGDSM_RenderTarget;
+            }
+            break;
+        }
+        default:
+            m_gmemDepthStencilMode = eGDSM_Texture;
+            break;
+        }
+    }
+
+    return m_gmemDepthStencilMode;
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -2462,15 +2499,13 @@ bool CD3D9Renderer::FX_FogScene()
 
         CTexture* depthRT = CTexture::s_ptexZTarget;
 
-        if (eGT_128bpp_PATH == FX_GetEnabledGmemPath(nullptr))
+        if (FX_GetEnabledGmemPath(nullptr))
         {
             depthRT = CTexture::s_ptexGmemStenLinDepth;
         }
 
-        if (eGT_256bpp_PATH != FX_GetEnabledGmemPath(nullptr)) // depth/stencil already in GMEM
-        {
-            depthRT->Apply(0, CTexture::GetTexState(TexStatePoint), EFTT_UNKNOWN, nSUnitZTarget, m_RP.m_MSAAData.Type ? SResourceView::DefaultViewMS : SResourceView::DefaultView); // bind as msaa target (if valid)
-        }
+        depthRT->Apply(0, CTexture::GetTexState(TexStatePoint), EFTT_UNKNOWN, nSUnitZTarget, m_RP.m_MSAAData.Type ? SResourceView::DefaultViewMS : SResourceView::DefaultView); // bind as msaa target (if valid)
+
 #if defined(VOLUMETRIC_FOG_SHADOWS)
         if (renderFogShadow)
         {
@@ -2973,7 +3008,12 @@ void CD3D9Renderer::FX_WaterVolumesPreprocess()
     if ((nBatchMask & FB_WATER_REFL) && CTexture::IsTextureExist(CTexture::s_ptexWaterVolumeRefl[0]))
     {
         PROFILE_LABEL_SCOPE("WATER_PREPROCESS");
+#if AZ_RENDER_TO_TEXTURE_GEM_ENABLED
+        const uint32 nCurrWaterVolID = gRenDev->GetCameraFrameID() % 2;
+#else
         const uint32 nCurrWaterVolID = gRenDev->GetFrameID(false) % 2;
+#endif // if AZ_RENDER_TO_TEXTURE_GEM_ENABLED
+
         CTexture* pCurrWaterVolRefl = CTexture::s_ptexWaterVolumeRefl[nCurrWaterVolID];
 
         PostProcessUtils().Log(" +++ Begin water volumes preprocessing +++ \n");
@@ -3106,30 +3146,6 @@ void CD3D9Renderer::FX_RenderWater(void(* RenderFunc)())
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
-void CD3D9Renderer::SetupLinearizeDepthParams(CShader* shader)
-{
-    static CCryNameR pParamName0("NearProjection");
-    AZ_Assert(shader, "Null shader when setting Linearize Depth params");
-
-    I3DEngine* pEng = gEnv->p3DEngine;
-
-    float zn = DRAW_NEAREST_MIN;
-    float zf = CV_r_DrawNearFarPlane;
-
-    float fNearZRange = CV_r_DrawNearZRange;
-    float fCamScale = (zf / pEng->GetMaxViewDistance());
-
-    const bool bReverseDepth = (m_RP.m_TI[m_RP.m_nProcessThreadID].m_PersFlags & RBPF_REVERSE_DEPTH) != 0;
-
-    Vec4 NearProjectionParams;
-    NearProjectionParams.x = bReverseDepth ? 1.0f - zf / (zf - zn) * fNearZRange : zf / (zf - zn) * fNearZRange;
-    NearProjectionParams.y = bReverseDepth ? zn / (zf - zn) * fNearZRange * fCamScale : zn / (zn - zf) * fNearZRange * fCamScale;
-    NearProjectionParams.z = bReverseDepth ? 1.0 - (fNearZRange - 0.001f) : fNearZRange - 0.001f;
-    NearProjectionParams.w = 1.0f;
-
-    shader->FXSetPSFloat(pParamName0, &NearProjectionParams, 1);
-}
-
 void CD3D9Renderer::FX_LinearizeDepth(CTexture* ptexZ)
 {
     {
@@ -3137,16 +3153,29 @@ void CD3D9Renderer::FX_LinearizeDepth(CTexture* ptexZ)
 
         bool isRenderingFur = FurPasses::GetInstance().IsRenderingFur();
 
-        if (!FX_GetEnabledGmemPath(nullptr))
-        {
 #ifdef SUPPORTS_MSAA
-            if (FX_GetMSAAMode())
-            {
-                FX_MSAASampleFreqStencilSetup(MSAA_SAMPLEFREQ_PASS);
-            }
-#endif
-            FX_PushRenderTarget(0, ptexZ, nullptr);
+        if (FX_GetMSAAMode())
+        {
+            FX_MSAASampleFreqStencilSetup(MSAA_SAMPLEFREQ_PASS);
         }
+#endif
+        SDepthTexture* depthBuffer = nullptr;
+        if (FX_GetEnabledGmemPath(nullptr))
+        {
+            switch (FX_GmemGetDepthStencilMode())
+            {
+            case eGDSM_RenderTarget:
+                AZ_Assert(false, "Depth is already linearized in the render target");
+                return;
+            case eGDSM_DepthStencilBuffer:
+                depthBuffer = &m_DepthBufferOrigMSAA;
+                break;
+            default:
+                break;
+            }
+        }
+
+        FX_PushRenderTarget(0, ptexZ, depthBuffer);
 
         static const CCryNameTSCRC pTechName("LinearizeDepth");
         PostProcessUtils().ShBeginPass(CShaderMan::s_shPostEffects, pTechName, FEF_DONTSETTEXTURES | FEF_DONTSETSTATES);
@@ -3154,8 +3183,6 @@ void CD3D9Renderer::FX_LinearizeDepth(CTexture* ptexZ)
         FX_SetState(GS_NODEPTHTEST);
 
         m_DevMan.BindSRV(eHWSC_Pixel, &m_pZBufferDepthReadOnlySRV, 15, 1);
-
-        SetupLinearizeDepthParams(CShaderMan::s_shPostEffects);
 
         //  Confetti BEGIN: Igor Lobanchikov
         RECT rect;
@@ -3171,10 +3198,7 @@ void CD3D9Renderer::FX_LinearizeDepth(CTexture* ptexZ)
 
         PostProcessUtils().ShEndPass();
 
-        if (!FX_GetEnabledGmemPath(nullptr))
-        {
-            FX_PopRenderTarget(0);
-        }
+        FX_PopRenderTarget(0);
     }
 }
 
@@ -4234,11 +4258,6 @@ bool CRenderer::FX_TryToMerge(CRenderObject* pObjN, CRenderObject* pObjO, IRende
         return false;
     }
 
-    if (pObjN->m_bHasShadowCasters || pObjO->m_bHasShadowCasters)
-    {
-        return false;
-    }
-
     if (pObjN->m_nClipVolumeStencilRef != pObjO->m_nClipVolumeStencilRef)
     {
         return false;
@@ -4809,6 +4828,8 @@ void CD3D9Renderer::FX_ProcessBatchesList(int nums, int nume, uint32 nBatchFilte
 }
 
 //////////////////////////////////////////////////////////////////////////
+// Only do expensive DX12 resource set building for PC DX12
+#if defined(CRY_USE_DX12)
 void CD3D9Renderer::PerFrameValidateResourceSets()
 {
     AZ_TRACE_METHOD();
@@ -4834,6 +4855,7 @@ void CD3D9Renderer::PerFrameValidateResourceSets()
         }
     }
 }
+#endif
 
 void CD3D9Renderer::FX_ProcessRenderList(int nums, int nume, int nList, int nAfterWater, void(* RenderFunc)(), bool bLighting, 
     uint32 nBatchFilter, uint32 nBatchExcludeFilter)
@@ -4955,13 +4977,13 @@ void CD3D9Renderer::FX_ProcessZPassRenderLists()
         FX_PreRender(3);
 
         m_RP.m_pRenderFunc = FX_FlushShader_ZPass;
-
+        const bool isGmemEnabled = FX_GetEnabledGmemPath(nullptr) != CD3D9Renderer::eGT_REGULAR_PATH;
         bool bClearZBuffer = !(m_RP.m_nRendFlags & SHDF_DO_NOT_CLEAR_Z_BUFFER);
 
         // For GMEM paths, depth/stencil clear gets set in CD3D9Renderer::FX_GmemTransition(...).
-        bClearZBuffer &= !FX_GetEnabledGmemPath(nullptr);
+        bClearZBuffer &= !isGmemEnabled;
 
-        // Motion blur not currently supported in GMEM paths or devices without floating point render targets
+        // For GMEM paths, velocity RT clear gets set in CD3D9Renderer::FX_GmemTransition(...).
         if (!FX_GetEnabledGmemPath(nullptr) && UseHalfFloatRenderTargets())
         {
             FX_ClearTarget(GetUtils().GetVelocityObjectRT(), Clr_White);
@@ -5010,7 +5032,6 @@ void CD3D9Renderer::FX_ProcessZPassRenderLists()
                 FX_ProcessZPassRender_List(EFSLIST_TRANSP);
             }
 
-
             // PC special case: render terrain/decals/roads normals separately - disable mrt rendering, on consoles we always use single rt for output
             FX_ZScene(false, false);
             FX_ZScene(true, false, true);
@@ -5033,9 +5054,14 @@ void CD3D9Renderer::FX_ProcessZPassRenderLists()
             FX_ZScene(false, false, true);
         }
 
-        // For GMEM paths, depth gets linearized right away during z-pass.
+        if (isGmemEnabled)
+        {
+            FX_GmemTransition(eGT_POST_GBUFFER);
+        }
+
+        // For some GMEM paths, the depth gets linearized right away during z-pass.
         // Depth downsampling gets done during transitions in CD3D9Renderer::FX_GmemTransition(...).
-        if (!FX_GetEnabledGmemPath(nullptr))
+        if (!isGmemEnabled)
         {
             // Reset current object so we don't end up with RBF_NEAREST states in FX_LinearizeDepth
             FX_ObjectChange(NULL, NULL, m_RP.m_pIdendityRenderObject, NULL);
@@ -5046,7 +5072,11 @@ void CD3D9Renderer::FX_ProcessZPassRenderLists()
             {
 #if defined(AZ_RESTRICTED_PLATFORM)
 #define AZ_RESTRICTED_SECTION D3DRENDPIPELINE_CPP_SECTION_5
-#include AZ_RESTRICTED_FILE(D3DRendPipeline_cpp, AZ_RESTRICTED_PLATFORM)
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/D3DRendPipeline_cpp_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/D3DRendPipeline_cpp_provo.inl"
+    #endif
 #endif
 #if defined(AZ_RESTRICTED_SECTION_IMPLEMENTED)
 #undef AZ_RESTRICTED_SECTION_IMPLEMENTED
@@ -5303,7 +5333,8 @@ void CD3D9Renderer::CPUOcclusionData::SetupOcclusionData(const char* textureName
     {
         unsigned int flags = FT_DONT_STREAM | FT_DONT_RELEASE | FT_STAGE_READBACK;
         m_zTargetReadback = CTexture::CreateTextureObject(textureName, s_occlusionBufferWidth, s_occlusionBufferHeight, 1, eTT_2D, flags, eTF_Unknown);
-        m_zTargetReadback->CreateRenderTarget(CTexture::s_eTFZ, Clr_FarPlane_R);
+        //CPU reading code expects it to be 32 bit float. Changing this to 16bit would require "16bit to 32bitfloat" conversion in FX_ZTargetReadBackOnCPU.
+        m_zTargetReadback->CreateRenderTarget(eTF_R32F, Clr_FarPlane_R); 
     }
 
     m_occlusionReadbackData.Reset(bReverseDepth);    
@@ -5352,14 +5383,55 @@ bool IsDepthReadbackOcclusionEnabled()
     return true;
 }
 
+void CD3D9Renderer::UpdateOcclusionDataForCPU()
+{
+    const bool bReverseDepth = (m_RP.m_TI[m_RP.m_nProcessThreadID].m_PersFlags & RBPF_REVERSE_DEPTH) != 0;
+    
+    // Copy to CPU accessible memory
+    m_occlusionData[m_occlusionBufferIndex].m_zTargetReadback->GetDevTexture()->DownloadToStagingResource(0);
+    
+    Matrix44 mCurView, mCurProj;
+    mCurView.SetIdentity();
+    mCurProj.SetIdentity();
+    GetModelViewMatrix(reinterpret_cast<f32*>(&mCurView));
+    GetProjectionMatrix(reinterpret_cast<f32*>(&mCurProj));
+    
+    if (bReverseDepth)
+    {
+        mCurProj = ReverseDepthHelper::Convert(mCurProj);
+    }
+    
+    m_occlusionData[m_occlusionBufferIndex].m_occlusionViewProj = mCurView * mCurProj;
+    m_occlusionData[m_occlusionBufferIndex].m_occlusionDataState = CPUOcclusionData::OcclusionDataState::OcclusionDataOnGPU;
+    
+    m_occlusionBufferIndex = (m_occlusionBufferIndex + 1) % s_numOcclusionReadbackTextures;
+}
+
 void CD3D9Renderer::FX_ZTargetReadBackOnCPU()
 {
     PROFILE_LABEL_SCOPE("DEPTH READBACK CPU");
     PROFILE_FRAME(FX_ZTargetReadBackOnCPU);
 
+#if AZ_RENDER_TO_TEXTURE_GEM_ENABLED
+    // ZTarget read back is used for occlusion culling and we don't want to pollute the main pass 
+    // occlusion buffer with the render to texture pass
+    if (IsRenderToTextureActive())
+    {
+        return;
+    }
+#endif // if AZ_RENDER_TO_TEXTURE_GEM_ENABLED
+
     if (!IsDepthReadbackOcclusionEnabled() || (SRendItem::m_RecurseLevel[m_RP.m_nProcessThreadID] > 0))
     {
         return;
+    }
+
+    const bool isGmemEnabled = FX_GetEnabledGmemPath(nullptr) != CD3D9Renderer::eGT_REGULAR_PATH;
+    if (isGmemEnabled)
+    {
+        //Since FX_ZTargetReadBack can not be run for gmem path we update the
+        //occlusion data for m_occlusionData here.
+        UpdateOcclusionDataForCPU();
     }
 
     static ICVar* pCVCoverageBufferLatency = gEnv->pConsole->GetCVar("e_CoverageBufferNumberFramesLatency");    
@@ -5484,7 +5556,19 @@ void CD3D9Renderer::FX_ZTargetReadBack()
     PROFILE_LABEL_SCOPE("DEPTH READBACK GPU");
     PROFILE_FRAME(FX_ZTargetReadBack);
 
-    if (!IsDepthReadbackOcclusionEnabled())
+#if AZ_RENDER_TO_TEXTURE_GEM_ENABLED
+    // do not pollute the main occlusion buffer with contents from the render to texture camera
+    if (IsRenderToTextureActive())
+    {
+        return;
+    }
+#endif // if AZ_RENDER_TO_TEXTURE_GEM_ENABLED
+
+    //Check for gmem as this code runs after gbuffer breaking gmem path. Besides we can just use
+    //downsampled linearized depth for occlusion.
+    const bool isGmemEnabled = FX_GetEnabledGmemPath(nullptr) != CD3D9Renderer::eGT_REGULAR_PATH;
+
+    if (!IsDepthReadbackOcclusionEnabled() || isGmemEnabled)
     {
         return;
     }
@@ -5525,8 +5609,6 @@ void CD3D9Renderer::FX_ZTargetReadBack()
 
         InvalidateCoverageBufferData();
     }
-
-    const AZ::u8 occlusionDataIndex = m_occlusionBufferIndex;
 
     // downsample on GPU
     RECT srcRect;
@@ -5572,7 +5654,7 @@ void CD3D9Renderer::FX_ZTargetReadBack()
     }
 
     pSrc = pDst;
-    pDst = m_occlusionData[occlusionDataIndex].m_zTargetReadback;
+    pDst = m_occlusionData[m_occlusionBufferIndex].m_zTargetReadback;
     PostProcessUtils().StretchRect(pSrc, pDst, false, false, false, false, downsampleMode);
 
     //  Blend ID into top left pixel of readback buffer
@@ -5599,30 +5681,13 @@ void CD3D9Renderer::FX_ZTargetReadBack()
 
     gcpRendD3D->FX_PopRenderTarget(0);
     gcpRendD3D->RT_SetViewport(0, 0, GetWidth(), GetHeight());
-
-    // Copy to CPU accessible memory
-    m_occlusionData[occlusionDataIndex].m_zTargetReadback->GetDevTexture()->DownloadToStagingResource(0);
-
+    
     if (bUseNativeDepth)
     {
         CTexture::s_ptexZTarget->SetShaderResourceView(pZTargetOrigSRV, bMSAA);
     }
     
-    Matrix44 mCurView, mCurProj;
-    mCurView.SetIdentity();
-    mCurProj.SetIdentity();
-    GetModelViewMatrix(reinterpret_cast<f32*>(&mCurView));
-    GetProjectionMatrix(reinterpret_cast<f32*>(&mCurProj));
-
-    if (bReverseDepth)
-    {
-        mCurProj = ReverseDepthHelper::Convert(mCurProj);
-    }
-    
-    m_occlusionData[occlusionDataIndex].m_occlusionViewProj = mCurView * mCurProj;
-    m_occlusionData[occlusionDataIndex].m_occlusionDataState = CPUOcclusionData::OcclusionDataState::OcclusionDataOnGPU;
-    
-    m_occlusionBufferIndex = (m_occlusionBufferIndex + 1) % s_numOcclusionReadbackTextures;
+    UpdateOcclusionDataForCPU();
 }
 
 void CD3D9Renderer::FX_UpdateCharCBs()
@@ -5769,6 +5834,7 @@ void CD3D9Renderer::RT_RenderScene(int nFlags, SThreadInfo& TI, void(* RenderFun
     {
         PROFILE_FRAME(WaitForRendItems);
         m_finalizeRendItemsJobExecutor[m_RP.m_nProcessThreadID].WaitForCompletion();
+        m_finalizeShadowRendItemsJobExecutor[m_RP.m_nProcessThreadID].WaitForCompletion();
     }
 
     CRenderMesh::FinalizeRendItems(m_RP.m_nProcessThreadID);
@@ -5798,7 +5864,11 @@ void CD3D9Renderer::RT_RenderScene(int nFlags, SThreadInfo& TI, void(* RenderFun
 
     CTimeValue Time = iTimer->GetAsyncTime();
 
+#if AZ_RENDER_TO_TEXTURE_GEM_ENABLED
+    if (!recursiveLevel && !IsRenderToTextureActive())
+#else
     if (!recursiveLevel)
+#endif // if AZ_RENDER_TO_TEXTURE_GEM_ENABLED
     {
         m_MainViewport.nX = 0;
         m_MainViewport.nY = 0;
@@ -5944,6 +6014,9 @@ void CD3D9Renderer::RT_RenderScene(int nFlags, SThreadInfo& TI, void(* RenderFun
         && (gcpRendD3D->FX_GetAntialiasingType() & eAT_JITTER_MASK)
         && (!gEnv->IsEditing() || CRenderer::CV_r_AntialiasingModeEditor)
         && (GetWireframeMode() == R_SOLID_MODE)
+#if AZ_RENDER_TO_TEXTURE_GEM_ENABLED
+        && !IsRenderToTextureActive()
+#endif // if AZ_RENDER_TO_TEXTURE_GEM_ENABLED
         && (CRenderer::CV_r_DeferredShadingDebugGBuffer == 0);
 
     m_TemporalJitterClipSpace = Vec4(0.0f, 0.0f, 0.0f, 0.0f);
@@ -6110,11 +6183,6 @@ void CD3D9Renderer::RT_RenderScene(int nFlags, SThreadInfo& TI, void(* RenderFun
                 FurPasses::GetInstance().ExecuteShellPrepass();
             }
 
-            if (FX_GetEnabledGmemPath(nullptr))
-            {
-                FX_GmemTransition(eGT_PRE_WATER);
-            }
-
             // only update particles in the main pass
             if (recursiveLevel == 0)
             {
@@ -6158,11 +6226,6 @@ void CD3D9Renderer::RT_RenderScene(int nFlags, SThreadInfo& TI, void(* RenderFun
                 }
 
                 FX_RenderWater(RenderFunc);
-            }
-
-            if (FX_GetEnabledGmemPath(nullptr))
-            {
-                FX_GmemTransition(eGT_POST_WATER);
             }
 
             {
@@ -6338,7 +6401,7 @@ void CD3D9Renderer::EF_ProcessRenderLists(RenderFunc pRenderFunc, int nFlags, SV
             // wait for all RendItems which need preprocession
             // note: the PopCompletionFence here indicates that no new jobs for preprocessing are spawned
             // note: must be called before EndSpawningGeneratingRendItemJobs! in all constellations, else a race condition can uncoalesce the underlying memory
-            AZ::LegacyJobExecutor* pJobExecutor = gEnv->pRenderer->GetGenerateRendItemJobExecutorPreProcess(nThreadID);
+            AZ::LegacyJobExecutor* pJobExecutor = gEnv->pRenderer->GetGenerateRendItemJobExecutorPreProcess();
             if (pJobExecutor->IsRunning())
             {
                 pJobExecutor->PopCompletionFence();
@@ -6348,21 +6411,21 @@ void CD3D9Renderer::EF_ProcessRenderLists(RenderFunc pRenderFunc, int nFlags, SV
             // we need to prepare the render item lists here when we are using the editor(which doesn't have MT rendering)
             if (!bIsMultiThreadedRenderer)
             {
-                if (m_generateRendItemJobExecutor[nThreadID].IsRunning())
+                if (m_generateRendItemJobExecutor.IsRunning())
                 {
-                    EndSpawningGeneratingRendItemJobs(nThreadID);
+                    m_generateRendItemJobExecutor.PopCompletionFence();
                 }
 
-                if (gRenDev->GetGenerateShadowRendItemJobExecutor(nThreadID)->IsRunning())
+                if (m_generateShadowRendItemJobExecutor.IsRunning())
                 {
-                    gRenDev->GetGenerateShadowRendItemJobExecutor(nThreadID)->PopCompletionFence();
+                    m_generateShadowRendItemJobExecutor.PopCompletionFence();
                 }
 
                 ////////////////////////////////////////////////
                 // wait till all SRendItems for this frame have finished preparing
                 m_finalizeRendItemsJobExecutor[m_RP.m_nProcessThreadID].WaitForCompletion();
                 m_finalizeShadowRendItemsJobExecutor[m_RP.m_nProcessThreadID].WaitForCompletion();
-                gRenDev->GetGenerateRendItemJobExecutor(nThreadID)->ClearPostJob(); // clear post job to prevent invoking it twice when no MT Rendering is enabled, but recursive rendering is used
+                gRenDev->GetGenerateRendItemJobExecutor()->ClearPostJob(); // clear post job to prevent invoking it twice when no MT Rendering is enabled, but recursive rendering is used
             }
         }
 
@@ -6405,7 +6468,7 @@ void CD3D9Renderer::EF_ProcessRenderLists(RenderFunc pRenderFunc, int nFlags, SV
     // we need to finalize the rend items again in a possible recursive pass
     if (!bIsMultiThreadedRenderer && nR)
     {
-        m_generateRendItemJobExecutor[nThreadID].WaitForCompletion();
+        m_generateRendItemJobExecutor.WaitForCompletion();
         m_finalizeRendItemsJobExecutor[nThreadID].PushCompletionFence();
         CRenderer::FinalizeRendItems(nThreadID);
     }
@@ -6502,7 +6565,7 @@ void CD3D9Renderer::EF_EndEf3D(const int nFlags, const int nPrecacheUpdateIdSlow
     EF_Query(EFQ_RenderMultithreaded, bIsMultiThreadedRenderer);
     if (bIsMultiThreadedRenderer && SRendItem::m_RecurseLevel[nThreadID] == 0 && !(nFlags & (SHDF_ZPASS_ONLY | SHDF_NO_SHADOWGEN))) //|SHDF_ALLOWPOSTPROCESS
     {
-        gRenDev->GetGenerateShadowRendItemJobExecutor(nThreadID)->PopCompletionFence();
+        m_generateShadowRendItemJobExecutor.PopCompletionFence();
     }
 
     SRendItem::m_RecurseLevel[nThreadID]--;
@@ -6674,51 +6737,6 @@ void CD3D9Renderer::EnablePipelineProfiler(bool bEnable)
     if (m_pPipelineProfiler)
     {
         m_pPipelineProfiler->SetEnabled(bEnable);
-    }
-#endif
-}
-
-void CD3D9Renderer::LogShaderImportMiss(const CShader* pShader)
-{
-#if defined(SHADERS_SERIALIZING)
-    stack_string requestLineStr;
-
-    if (!CRenderer::CV_r_shaderssubmitrequestline || !CRenderer::CV_r_shadersremotecompiler)
-    {
-        return;
-    }
-
-    gRenDev->m_cEF.CreateShaderExportRequestLine(pShader, requestLineStr);
-
-    AZStd::string shaderList = GetShaderListFilename();
-
-#ifdef SHADER_ASYNC_COMPILATION
-    if (CRenderer::CV_r_shadersasynccompiling)
-    {
-        // Lazy init?
-        if (!SShaderAsyncInfo::PendingList().m_Next)
-        {
-            SShaderAsyncInfo::PendingList().m_Next = &SShaderAsyncInfo::PendingList();
-            SShaderAsyncInfo::PendingList().m_Prev = &SShaderAsyncInfo::PendingList();
-            SShaderAsyncInfo::PendingListT().m_Next = &SShaderAsyncInfo::PendingListT();
-            SShaderAsyncInfo::PendingListT().m_Prev = &SShaderAsyncInfo::PendingListT();
-        }
-
-        SShaderAsyncInfo* pAsyncRequest = new SShaderAsyncInfo;
-
-        if (pAsyncRequest)
-        {
-            pAsyncRequest->m_RequestLine = requestLineStr.c_str();
-            pAsyncRequest->m_shaderList = shaderList.c_str();
-            pAsyncRequest->m_Text = "";
-            pAsyncRequest->m_bDeleteAfterRequest = true;
-            CAsyncShaderTask::InsertPendingShader(pAsyncRequest);
-        }
-    }
-    else
-#endif
-    {
-        NRemoteCompiler::CShaderSrv::Instance().RequestLine(shaderList.c_str(), requestLineStr.c_str());
     }
 #endif
 }

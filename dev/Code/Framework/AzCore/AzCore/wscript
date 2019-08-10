@@ -33,16 +33,15 @@ def build(bld):
         defines         = list(defines),
         export_defines  = list(defines),
         features        = ['internal_telemetry'],
-        test_all_defines = ['AZCORE_ENABLE_MEMORY_TRACKING'],
-        test_all_export_defines = ['AZCORE_ENABLE_MEMORY_TRACKING'],
 
         # Compiler Specific
         msvc_cxxflags       = ['/W4'],
 
+        # Testing
+        test_all_file_list = ['azcore_test.waf_files'],
+
         # Platform Specific
         win_file_list       = ['azcore_win.waf_files', 'std/azstd_win.waf_files'],
-        win_x64_vs2013_file_list = ['azcore_natvis_vs2013.waf_files'],
-        win_x64_vs2015_file_list = ['azcore_natvis_vs2015.waf_files'],
         win_defines         = [
                               '_HAS_EXCEPTIONS=0',  # prevents warning: "C++ exception handler used, but unwind semantics are not enabled"
                               ],
@@ -62,9 +61,9 @@ def build(bld):
         linux_file_list     = ['azcore_linux.waf_files', 'std/azstd_linux.waf_files'],
         linux_includes      = ['/usr/include/libcxxabi'],
     )
-    for p in bld.env['RESTRICTED_PLATFORMS']:
-        kw['{}_file_list'.format(p)] = [
-            '{0}/azcore_{0}.waf_files'.format(p),
-            'std/{0}/azstd_{0}.waf_files'.format(p),
+    for p0, p1, p2, p3 in bld.env['RESTRICTED_PLATFORMS']:
+        kw['{}_file_list'.format(p3)] = [
+            '{0}/azcore_{1}.waf_files'.format(p0, p1),
+            'std/{0}/azstd_{1}.waf_files'.format(p0, p1),
         ]
     bld.CryEngineStaticLibrary(**kw)

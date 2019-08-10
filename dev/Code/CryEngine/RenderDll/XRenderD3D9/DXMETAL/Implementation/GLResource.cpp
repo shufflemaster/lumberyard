@@ -18,6 +18,7 @@
 #include "GLResource.hpp"
 #include "METALContext.hpp"
 #include "MetalDevice.hpp"
+#include <DriverD3D.h>
 
 namespace NCryMetal
 {
@@ -250,7 +251,7 @@ namespace NCryMetal
                     //Depth stencil buffer gets written into and sampled from.
                     Desc.usage = MTLTextureUsageRenderTarget | MTLTextureUsageShaderRead;
 
-#if defined AZ_PLATFORM_APPLE_OSX
+#if defined(AZ_PLATFORM_APPLE_OSX)
                     //On osx the depth/stencil texture is merged. You need to create a different
                     //texture view to access stencil data. Hence we need this flag.
                     Desc.usage |= MTLTextureUsagePixelFormatView;
@@ -258,9 +259,21 @@ namespace NCryMetal
                 }
                 else if(CTexture::IsDeviceFormatTypeless(pFormat->m_eDXGIFormat))
                 {
-                    Desc.usage |= MTLTextureUsagePixelFormatView;
+                    //Apple recommendation -> For sRGB variant views, you don’t need the PFV flag when: - running on
+                    //iOS/tvOS 12.0 or newer - running on macOS 10.15 or newer
+                    //However, on older OSs (and in macOS case, older GPUs) you are still required to set the flag.
+#if defined(AZ_COMPILER_CLANG) && AZ_COMPILER_CLANG >= 9    //@available was added in Xcode 9
+                    if (@available(macOS 10.15, iOS 12.0, *))
+                    {
+                        //No need to do anything but if we want to add non sRGB view related flags it would go here.
+                    }
+                    else
+                    {
+                        Desc.usage |= MTLTextureUsagePixelFormatView;
+                    }
+#endif
                 }
-                
+
                 pTexture->m_Texture = [mtlDevice newTextureWithDescriptor:Desc];
 
                 if (!pTexture->m_Texture)
@@ -670,14 +683,12 @@ namespace NCryMetal
     {
         static void InitializeStorage(STexture* pTexture, uint32 uCPUAccess, const SGIFormatInfo* pFormat, CDevice* pDevice, const uint32 uBindFlags)
         {
-            //  Confetti BEGIN: Igor Lobanchikov
             Interface::TexStorage(pTexture, GetMipSize(pTexture, 0, pFormat, false), pTexture->m_uNumMipLevels, pFormat, pDevice->GetMetalDevice(), uBindFlags);
             {
                 STexSubresourceID kEndID = {pTexture->m_uNumMipLevels, pTexture->m_uNumElements};
                 uint32 uMappedSize(GetSystemMemoryTextureOffset<Interface>(pTexture, pFormat, kEndID));
                 pTexture->m_pMapMemoryCopy = static_cast<uint8*>(Memalign(uMappedSize, MIN_MAPPED_RESOURCE_ALIGNMENT));
             }
-            //  Confetti End: Igor Lobanchikov
         }
 
         static void UploadImage(STexture* pTexture, STexSubresourceID kSubID, STexBox kBox, const void* pSrcData, uint32 uSrcRowPitch, uint32 uSrcDepthPitch, CContext* pContext, const SGIFormatInfo* pFormat)
@@ -696,12 +707,18 @@ namespace NCryMetal
             SPackedLayout kPackedLayout;
             Interface::GetPackedLayout(kSubSize, pFormat, &kPackedLayout);
 
-            //  Confetti BEGIN: Igor Lobanchikov
             kMappedSubTex.m_pBuffer = pTexture->m_pMapMemoryCopy + GetSystemMemoryTextureOffset<Interface>(pTexture, pFormat, kSubID);
             if (bDownload)
             {
-                pContext->FlushBlitEncoderAndWait();
-
+                static ICVar* isScreenshot = gEnv->pConsole->GetCVar("e_ScreenShot");
+                static ICVar* isCaptureFrame = gEnv->pConsole->GetCVar("capture_frames");
+                if (isScreenshot->GetIVal() || isCaptureFrame->GetIVal())
+                {
+                    //This will stall the GPU so be very careful when using it. Only use it when you absolutely need the
+                    //work encoded by the current comman buffer.
+                    pContext->FlushBlitEncoderAndWait();
+                }
+                
                 MTLRegion region = {
                     {0, 0, 0}, {pTexture->m_Texture.width, pTexture->m_Texture.height, pTexture->m_Texture.depth}
                 };
@@ -712,7 +729,6 @@ namespace NCryMetal
                                   mipmapLevel: kSubID.m_iMipLevel
                                         slice: kSubID.m_uElement];
             }
-            //  Confetti End: Igor Lobanchikov
 
             kMappedSubTex.m_uRowPitch = kPackedLayout.m_uRowPitch;
             kMappedSubTex.m_uImagePitch = kPackedLayout.m_uImagePitch;
@@ -721,7 +737,6 @@ namespace NCryMetal
 
         static void Unmap(STexture* pTexture, STexSubresourceID kSubID, const SMappedSubTexture& kMappedSubTex, CContext*, const SGIFormatInfo*)
         {
-            //  Confetti BEGIN: Igor Lobanchikov
             if (kMappedSubTex.m_bUpload)
             {
                 MTLRegion region = {
@@ -734,7 +749,6 @@ namespace NCryMetal
                                        bytesPerRow: kMappedSubTex.m_uRowPitch
                                      bytesPerImage: kMappedSubTex.m_uImagePitch];
             }
-            //  Confetti End: Igor Lobanchikov
         }
     };
 
@@ -2695,11 +2709,13 @@ namespace NCryMetal
     template <typename Impl>
     typename Impl::TViewPtr GetTexture1DView(STexture* pTexture, const typename Impl::TViewDesc& kViewDesc, CDevice* pDevice)
     {
+        using ViewDimensionType = decltype(kViewDesc.ViewDimension);
+
         switch (kViewDesc.ViewDimension)
         {
-        case Impl::DIMENSION_TEXTURE1D:
+        case static_cast<ViewDimensionType>(Impl::DIMENSION_TEXTURE1D):
             return Impl::GetViewMip(pTexture,       kViewDesc.Texture1D,      kViewDesc.Format, MTLTextureType1D,       0, 1, pDevice);
-        case Impl::DIMENSION_TEXTURE1DARRAY:
+        case static_cast<ViewDimensionType>(Impl::DIMENSION_TEXTURE1DARRAY):
             return Impl::GetViewMipLayers(pTexture, kViewDesc.Texture1DArray, kViewDesc.Format, MTLTextureType1DArray,       pDevice);
         }
         return NULL;
@@ -2708,14 +2724,16 @@ namespace NCryMetal
     template <typename Impl>
     typename Impl::TViewPtr GetTexture2DView(STexture* pTexture, const typename Impl::TViewDesc& kViewDesc, CDevice* pDevice)
     {
+        using ViewDimensionType = decltype(kViewDesc.ViewDimension);
+
         switch (kViewDesc.ViewDimension)
         {
-        case Impl::DIMENSION_TEXTURE2D:
+        case static_cast<ViewDimensionType>(Impl::DIMENSION_TEXTURE2D):
             return Impl::GetViewMip(pTexture,       kViewDesc.Texture2D,        kViewDesc.Format, MTLTextureType2D,                   0, 1,       pDevice);
-        case Impl::DIMENSION_TEXTURE2DARRAY:
+        case static_cast<ViewDimensionType>(Impl::DIMENSION_TEXTURE2DARRAY):
             return Impl::GetViewMipLayers(pTexture, kViewDesc.Texture2DArray,   kViewDesc.Format, MTLTextureType2DArray,                         pDevice);
 #if DXGL_SUPPORT_MULTISAMPLED_TEXTURES
-        case Impl::DIMENSION_TEXTURE2DMS:
+        case static_cast<ViewDimensionType>(Impl::DIMENSION_TEXTURE2DMS):
             return Impl::GetView(pTexture,                                      kViewDesc.Format, GL_TEXTURE_2D_MULTISAMPLE,       0, 1, 0, 1, pDevice);
 #endif //DXGL_SUPPORT_MULTISAMPLED_TEXTURES
         }
@@ -2725,9 +2743,11 @@ namespace NCryMetal
     template <typename Impl>
     typename Impl::TViewPtr GetTextureCubeView(STexture* pTexture, const typename Impl::TViewDesc& kViewDesc, CDevice* pDevice)
     {
+        using ViewDimensionType = decltype(kViewDesc.ViewDimension);
+
         switch (kViewDesc.ViewDimension)
         {
-        case D3D11_SRV_DIMENSION_TEXTURECUBE:
+        case static_cast<ViewDimensionType>(D3D11_SRV_DIMENSION_TEXTURECUBE):
             DXGL_TODO("Check if 6 is correct");
             return Impl::GetViewMip(pTexture, kViewDesc.TextureCube, kViewDesc.Format, MTLTextureTypeCube, 0, 6, pDevice);
         }
@@ -2950,7 +2970,8 @@ namespace NCryMetal
                            destinationSlice: kDstSubID.m_uElement
                            destinationLevel: kDstSubID.m_iMipLevel
                           destinationOrigin: destinationOrigin];
-#if defined(AZ_PLATFORM_APPLE_OSX)
+        
+#if defined AZ_PLATFORM_APPLE_OSX
         if (pDstTexture->m_Texture.storageMode == MTLStorageModeManaged)
         {
             // Need to synchronize the CPU/GPU versions of the texture if it is
@@ -2958,7 +2979,7 @@ namespace NCryMetal
             // writes the GPU does to the texture
             [blitCommandEncoder synchronizeTexture: pDstTexture->m_Texture
                                              slice: kDstSubID.m_uElement
-                                             level:kDstSubID.m_iMipLevel];
+                                             level: kDstSubID.m_iMipLevel];
         }
 #endif
     }

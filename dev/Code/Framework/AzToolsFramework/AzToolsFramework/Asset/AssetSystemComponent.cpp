@@ -17,6 +17,11 @@
 #include <AzFramework/Network/AssetProcessorConnection.h>
 #include <AzToolsFramework/Asset/AssetProcessorMessages.h>
 #include <AzFramework/Asset/AssetProcessorMessages.h>
+#include <AzToolsFramework/API/ToolsApplicationAPI.h>
+
+#ifdef AZ_PLATFORM_WINDOWS
+#include <Windows.h> // needed for GetCurrentProcessId() for activating the Editor and setting it to the Foreground
+#endif
 
 namespace AzToolsFramework
 {
@@ -51,6 +56,24 @@ namespace AzToolsFramework
             }
         }
 
+        void OnAssetBrowserShowRequest(const void* buffer, unsigned int bufferSize)
+        {
+            AssetBrowserShowRequest message;
+            if (!AZ::Utils::LoadObjectFromBufferInPlace(buffer, bufferSize, message))
+            {
+                AZ_TracePrintf("AssetSystem", "Problem deserializing AssetBrowserShowRequest");
+                return;
+            }
+
+            QString absolutePath = QString::fromUtf8(message.m_filePath.data());
+            AZStd::function<void()> finalizeOnMainThread = [absolutePath]()
+            {
+                AzToolsFramework::EditorEvents::Bus::Broadcast(&AzToolsFramework::EditorEvents::SelectAsset, absolutePath);
+            };
+
+            AZ::SystemTickBus::QueueFunction(finalizeOnMainThread);
+        }
+
         AZ::Outcome<AssetSystem::JobInfoContainer> SendAssetJobsRequest(AssetJobsInfoRequest request, AssetJobsInfoResponse &response)
         {
             if (!SendRequest(request, response))
@@ -78,6 +101,25 @@ namespace AzToolsFramework
                 {
                     OnAssetSystemMessage(typeId, data, dataLength);
                 });
+
+                m_showAssetBrowserCBHandle = socketConn->AddMessageHandler(AssetSystem::AssetBrowserShowRequest::MessageType(),
+                    [](unsigned int /*typeId*/, unsigned int /*serial*/, const void* data, unsigned int dataLength)
+                {
+                    OnAssetBrowserShowRequest(data, dataLength);
+                });
+
+                m_wantShowAssetBrowserCBHandle = socketConn->AddMessageHandler(AssetSystem::WantAssetBrowserShowRequest::MessageType(),
+                    [](unsigned int /*typeId*/, unsigned int serial, const void* data, unsigned int dataLength)
+                {
+                    Q_UNUSED(data);
+                    Q_UNUSED(dataLength);
+
+                    AssetSystem::WantAssetBrowserShowResponse message;
+#ifdef AZ_PLATFORM_WINDOWS
+                    message.m_processId = GetCurrentProcessId();
+#endif // #ifdef AZ_PLATFORM_WINDOWS
+                    SendResponse(message, serial);
+                });
             }
 
             AssetSystemBus::AllowFunctionQueuing(true);
@@ -98,6 +140,8 @@ namespace AzToolsFramework
             AZ_Assert(socketConn, "AzToolsFramework::AssetSystem::AssetSystemComponent requires a valid socket conection!");
             if (socketConn)
             {
+                socketConn->RemoveMessageHandler(AssetSystem::WantAssetBrowserShowRequest::MessageType(), m_wantShowAssetBrowserCBHandle);
+                socketConn->RemoveMessageHandler(AssetSystem::AssetBrowserShowRequest::MessageType(), m_showAssetBrowserCBHandle);
                 socketConn->RemoveMessageHandler(AZ_CRC("AssetProcessorManager::SourceFileNotification", 0x8bfc4d1c), m_cbHandle);
             }
 
@@ -113,14 +157,23 @@ namespace AzToolsFramework
             // Requests
             AssetJobsInfoRequest::Reflect(context);
             AssetJobLogRequest::Reflect(context);
+            GetAbsoluteAssetDatabaseLocationRequest::Reflect(context);
             GetScanFoldersRequest::Reflect(context);
             GetAssetSafeFoldersRequest::Reflect(context);
+            AssetProcessorPlatformStatusRequest::Reflect(context);
+            AssetProcessorPendingPlatformAssetsRequest::Reflect(context);
+            WantAssetBrowserShowRequest::Reflect(context);
+            AssetBrowserShowRequest::Reflect(context);
 
             // Responses
             AssetJobsInfoResponse::Reflect(context);
             AssetJobLogResponse::Reflect(context);
+            GetAbsoluteAssetDatabaseLocationResponse::Reflect(context);
             GetScanFoldersResponse::Reflect(context);
             GetAssetSafeFoldersResponse::Reflect(context);
+            AssetProcessorPlatformStatusResponse::Reflect(context);
+            AssetProcessorPendingPlatformAssetsResponse::Reflect(context);
+            WantAssetBrowserShowResponse::Reflect(context);
 
             //JobInfo
             AzToolsFramework::AssetSystem::JobInfo::Reflect(context);
@@ -206,6 +259,36 @@ namespace AzToolsFramework
             else
             {
                 fullPath = "";
+                return false;
+            }
+        }
+
+        bool AssetSystemComponent::GetAbsoluteAssetDatabaseLocation(AZStd::string& result)
+        {
+            result = "";
+
+            AzFramework::SocketConnection* engineConnection = AzFramework::SocketConnection::GetInstance();
+            if (!engineConnection || !engineConnection->IsConnected())
+            {
+                return false;
+            }
+
+            AzToolsFramework::AssetSystem::GetAbsoluteAssetDatabaseLocationRequest request;
+            AzToolsFramework::AssetSystem::GetAbsoluteAssetDatabaseLocationResponse response;
+            if (!SendRequest(request, response))
+            {
+                AZ_Error("Editor", false, "Failed to send GetAbsoluteAssetDatabaseLocation request");
+                return false;
+            }
+
+
+            if (response.m_isSuccess)
+            {
+                result = response.m_absoluteAssetDatabaseLocation;
+                return true;
+            }
+            else
+            {
                 return false;
             }
         }
@@ -349,6 +432,34 @@ namespace AzToolsFramework
             return !response.m_assetSafeFolders.empty();
         }
 
+        bool AssetSystemComponent::IsAssetPlatformEnabled(const char* platform)
+        {
+            AssetProcessorPlatformStatusRequest request;
+            request.m_platform = platform;
+
+            AssetProcessorPlatformStatusResponse response;
+            if (!SendRequest(request, response))
+            {
+                return false;
+            }
+
+            return response.m_isPlatformEnabled;
+        }
+
+        int AssetSystemComponent::GetPendingAssetsForPlatform(const char* platform)
+        {
+            AssetProcessorPendingPlatformAssetsRequest request;
+            request.m_platform = platform;
+
+            AssetProcessorPendingPlatformAssetsResponse response;
+            if (!SendRequest(request, response))
+            {
+                return -1;
+            }
+
+            return response.m_numberOfPendingJobs;
+        }
+
         AZ::Outcome<AssetSystem::JobInfoContainer> AssetSystemComponent::GetAssetJobsInfo(const AZStd::string& path, const bool escalateJobs)
         {
             AzFramework::SocketConnection* engineConnection = AzFramework::SocketConnection::GetInstance();
@@ -364,7 +475,7 @@ namespace AzToolsFramework
             return SendAssetJobsRequest(request, response);
         }
 
-        AZ::Outcome<AssetSystem::JobInfoContainer> AssetSystemComponent::GetAssetJobsInfoByAssetID(const AZ::Data::AssetId& assetId, const bool escalateJobs)
+        AZ::Outcome<AssetSystem::JobInfoContainer> AssetSystemComponent::GetAssetJobsInfoByAssetID(const AZ::Data::AssetId& assetId, const bool escalateJobs, bool requireFencing = true)
         {
             AzFramework::SocketConnection* engineConnection = AzFramework::SocketConnection::GetInstance();
             if (!engineConnection || !engineConnection->IsConnected())
@@ -372,9 +483,7 @@ namespace AzToolsFramework
                 return AZ::Failure();
             }
 
-            AssetJobsInfoRequest request;
-            request.m_assetId = assetId;
-            request.m_escalateJobs = escalateJobs;
+            AssetJobsInfoRequest request(assetId, escalateJobs, requireFencing);
             AssetJobsInfoResponse response;
 
             return SendAssetJobsRequest(request, response);

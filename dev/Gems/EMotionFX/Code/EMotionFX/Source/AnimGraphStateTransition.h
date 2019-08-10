@@ -13,9 +13,10 @@
 #pragma once
 
 #include <AzCore/RTTI/ReflectContext.h>
-#include <EMotionFX/Source/AnimGraphNodeId.h>
-#include "EMotionFXConfig.h"
-#include "AnimGraphObject.h"
+#include <EMotionFX/Source/AnimGraphObjectIds.h>
+#include <EMotionFX/Source/AnimGraphObject.h>
+#include <EMotionFX/Source/EMotionFXConfig.h>
+#include <EMotionFX/Source/TriggerActionSetup.h>
 
 
 namespace EMotionFX
@@ -24,15 +25,11 @@ namespace EMotionFX
     class AnimGraphInstance;
     class AnimGraphStateMachine;
     class AnimGraphTransitionCondition;
+    class AnimGraphTriggerAction;
     class AnimGraphStateMachine;
     class Transform;
     class Pose;
 
-    /**
-     *
-     *
-     *
-     */
     class EMFX_API AnimGraphStateTransition
         : public AnimGraphObject
     {
@@ -44,6 +41,18 @@ namespace EMotionFX
         {
             INTERPOLATIONFUNCTION_LINEAR        = 0,
             INTERPOLATIONFUNCTION_EASECURVE     = 1
+        };
+
+        enum EInterruptionMode : AZ::u8
+        {
+            AlwaysAllowed = 0,
+            MaxBlendWeight = 1
+        };
+
+        enum EInterruptionBlendBehavior : AZ::u8
+        {
+            Continue = 0,
+            Stop = 1
         };
 
         class EMFX_API UniqueData
@@ -100,20 +109,21 @@ namespace EMotionFX
         virtual ~AnimGraphStateTransition();
 
         void Reinit() override;
+        void RecursiveReinit() override;
         bool InitAfterLoading(AnimGraph* animGraph) override;
 
         void Update(AnimGraphInstance* animGraphInstance, float timePassedInSeconds) override;
         void OnRemoveNode(AnimGraph* animGraph, AnimGraphNode* nodeToRemove) override;
         void OnUpdateUniqueData(AnimGraphInstance* animGraphInstance) override;
         void RecursiveCollectObjects(MCore::Array<AnimGraphObject*>& outObjects) const override;
-        void ExtractMotion(AnimGraphInstance* animGraphInstance, Transform* outTransform, Transform* outTransformMirrored) const;
+        void ExtractMotion(AnimGraphInstance* animGraphInstance, AnimGraphRefCountedData* sourceData, Transform* outTransform, Transform* outTransformMirrored) const;
 
         void OnStartTransition(AnimGraphInstance* animGraphInstance);
         void OnEndTransition(AnimGraphInstance* animGraphInstance);
-        bool GetIsDone(AnimGraphInstance* animGraphInstance) const;
-        float GetBlendWeight(AnimGraphInstance* animGraphInstance) const;
+        bool GetIsDone(const AnimGraphInstance* animGraphInstance) const;
+        float GetBlendWeight(const AnimGraphInstance* animGraphInstance) const;
 
-        void CalcTransitionOutput(AnimGraphInstance* animGraphInstance, AnimGraphPose& from, AnimGraphPose& to, AnimGraphPose* outputPose) const;
+        void CalcTransitionOutput(const AnimGraphInstance* animGraphInstance, const AnimGraphPose& from, const AnimGraphPose& to, AnimGraphPose* outputPose) const;
 
         bool CheckIfIsReady(AnimGraphInstance* animGraphInstance) const;
 
@@ -130,10 +140,22 @@ namespace EMotionFX
         AZ::u32 GetPriority() const;
 
         void SetCanBeInterrupted(bool canBeInterrupted);
-        bool GetCanBeInterrupted() const;
+        void SetCanBeInterruptedBy(const AZStd::vector<AnimGraphConnectionId>& transitionIds);
+        bool CanBeInterruptedBy(const AnimGraphStateTransition* transition, const AnimGraphInstance* animGraphInstance = nullptr) const;
+        const AZStd::vector<AZ::u64>& GetCanBeInterruptedByTransitionIds() const { return m_canBeInterruptedByTransitionIds; }
+
+        void SetInterruptionMode(EInterruptionMode mode) { m_interruptionMode = mode; }
+        EInterruptionMode GetInterruptionMode() const { return m_interruptionMode; }
+
+        void SetMaxInterruptionBlendWeight(float weight) { m_maxInterruptionBlendWeight = weight; }
+        float GetMaxInterruptionBlendWeight() const { return m_maxInterruptionBlendWeight; }
+
+        void SetInterruptionBlendBehavior(EInterruptionBlendBehavior blendBehavior) { m_interruptionBlendBehavior = blendBehavior; }
+        EInterruptionBlendBehavior GetInterruptionBlendBehavior() const { return m_interruptionBlendBehavior; }
 
         void SetCanInterruptOtherTransitions(bool canInterruptOtherTransitions);
         bool GetCanInterruptOtherTransitions() const;
+        bool GotInterrupted(const AnimGraphInstance* animGraphInstance) const;
 
         void SetCanInterruptItself(bool canInterruptItself);
         bool GetCanInterruptItself() const;
@@ -151,13 +173,13 @@ namespace EMotionFX
          * Get the unique identification number for the transition.
          * @return The unique identification number.
          */
-        MCORE_INLINE uint32 GetID() const                                                       { return mID; }
+        AnimGraphConnectionId GetId() const                                                         { return m_id; }
 
         /**
          * Set the unique identification number for the transition.
          * @param[in] id The unique identification number.
          */
-        void SetID(uint32 id);
+        void SetId(AnimGraphConnectionId id)                                                        { m_id = id; }
 
         /**
          * Set if the transition is a wildcard transition or not. A wildcard transition is a transition that will be used in case there is no other path from the current
@@ -194,11 +216,11 @@ namespace EMotionFX
 
         bool CanWildcardTransitionFrom(AnimGraphNode* sourceNode) const;
 
+        AnimGraphStateMachine* GetStateMachine() const;
+
         MCORE_INLINE size_t GetNumConditions() const                                            { return mConditions.size(); }
         MCORE_INLINE AnimGraphTransitionCondition* GetCondition(size_t index) const            { return mConditions[index]; }
         size_t FindConditionIndex(AnimGraphTransitionCondition* condition) const;
-
-        AnimGraphStateMachine* GetStateMachine() const;
 
         void AddCondition(AnimGraphTransitionCondition* condition);
         void InsertCondition(AnimGraphTransitionCondition* condition, size_t index);
@@ -206,6 +228,9 @@ namespace EMotionFX
         void RemoveCondition(size_t index, bool delFromMem = true);
         void RemoveAllConditions(bool delFromMem = true);
         void ResetConditions(AnimGraphInstance* animGraphInstance);
+
+        TriggerActionSetup& GetTriggerActionSetup() { return m_actionSetup; }
+        const TriggerActionSetup& GetTriggerActionSetup() const { return m_actionSetup; }
 
         void SetGroups(const AZStd::vector<AZStd::string>& groups);
         void SetStateIds(const AZStd::vector<AnimGraphNodeId>& stateIds);
@@ -226,15 +251,19 @@ namespace EMotionFX
         AZ::Crc32 GetEaseInOutSmoothnessVisibility() const;
         AZ::Crc32 GetVisibilityHideWhenExitOrEntry() const;
         AZ::Crc32 GetVisibilityAllowedStates() const;
+        AZ::Crc32 GetVisibilityInterruptionProperties() const;
+        AZ::Crc32 GetVisibilityCanBeInterruptedBy() const;
+        AZ::Crc32 GetVisibilityMaxInterruptionBlendWeight() const;
 
         AZStd::vector<AnimGraphTransitionCondition*>    mConditions;
         StateFilterLocal                                m_allowTransitionsFrom;
 
+        TriggerActionSetup                              m_actionSetup;
         AnimGraphNode*                                  mSourceNode;
         AnimGraphNode*                                  mTargetNode;
         AZ::u64                                         m_sourceNodeId;
         AZ::u64                                         m_targetNodeId;
-        uint32                                          mID;                        /**< The unique identification number. */
+        AZ::u64                                         m_id;                        /**< The unique identification number. */
 
         float                                           m_transitionTime;
         float                                           m_easeInSmoothness;
@@ -251,7 +280,11 @@ namespace EMotionFX
         bool                                            mIsWildcardTransition;      /**< Flag which indicates if the state transition is a wildcard transition or not. */
         bool                                            m_isDisabled;
         bool                                            m_canBeInterruptedByOthers;
+        AZStd::vector<AZ::u64>                          m_canBeInterruptedByTransitionIds;
+        float                                           m_maxInterruptionBlendWeight;
         bool                                            m_canInterruptOtherTransitions;
         bool                                            m_allowSelfInterruption;
+        EInterruptionBlendBehavior                      m_interruptionBlendBehavior;
+        EInterruptionMode                               m_interruptionMode;
     };
 }   // namespace EMotionFX

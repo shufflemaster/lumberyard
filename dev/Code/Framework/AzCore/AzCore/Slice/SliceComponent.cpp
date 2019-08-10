@@ -18,11 +18,13 @@
 #include <AzCore/Debug/Profiler.h>
 #include <AzCore/Asset/AssetManager.h>
 #include <AzCore/Component/TransformBus.h>
-
+#include <AzCore/std/algorithm.h>
+#include <AzCore/std/smart_ptr/make_shared.h>
 ///////////////////////////////////////////////////////
 // Temp while the asset system is done
 #include <AzCore/Serialization/Utils.h>
 ///////////////////////////////////////////////////////
+
 namespace AZ
 {
     namespace Converters
@@ -336,6 +338,20 @@ namespace AZ
     }
 
     //=========================================================================
+    void SliceComponent::DataFlagsPerEntity::SetEntityDataFlagsForUndo(EntityId entityId, const DataPatch::FlagsMap& dataFlags)
+    {
+        if (!dataFlags.empty())
+        {
+            m_entityToDataFlags[entityId] = dataFlags;
+        }
+        else
+        {
+            // If entity has no data flags, erase the entity's map entry.
+            m_entityToDataFlags.erase(entityId);
+        }
+    }
+
+    //=========================================================================
     bool SliceComponent::DataFlagsPerEntity::ClearEntityDataFlags(EntityId entityId)
     {
         if (IsValidEntity(entityId))
@@ -439,6 +455,19 @@ namespace AZ
     {
     }
 
+    SliceComponent::InstantiatedContainer::InstantiatedContainer(
+        SliceComponent* sourceComponent,
+        bool deleteEntitiesOnDestruction)
+        : m_deleteEntitiesOnDestruction(deleteEntitiesOnDestruction)
+    {
+        if (!sourceComponent)
+        {
+            return;
+        }
+        sourceComponent->GetEntities(m_entities);
+        sourceComponent->GetAllMetadataEntities(m_metadataEntities);
+    }
+
     //=========================================================================
     // SliceComponent::InstantiatedContainer::~InstanceContainer
     //=========================================================================
@@ -513,6 +542,7 @@ namespace AZ
     //=========================================================================
     SliceComponent::SliceInstance::SliceInstance(const SliceInstance& rhs)
     {
+        operator=(rhs);
         m_instantiated = rhs.m_instantiated;
         m_baseToNewEntityIdMap = rhs.m_baseToNewEntityIdMap;
         m_entityIdToBaseCache = rhs.m_entityIdToBaseCache;
@@ -520,6 +550,21 @@ namespace AZ
         m_dataFlags.CopyDataFlagsFrom(rhs.m_dataFlags);
         m_instanceId = rhs.m_instanceId;
         m_metadataEntity = rhs.m_metadataEntity;
+    }
+
+    //=========================================================================
+    // SliceComponent::SliceInstance::operator=
+    //=========================================================================
+    SliceComponent::SliceInstance& SliceComponent::SliceInstance::operator=(const SliceInstance& rhs)
+    {
+        m_instantiated = rhs.m_instantiated;
+        m_baseToNewEntityIdMap = rhs.m_baseToNewEntityIdMap;
+        m_entityIdToBaseCache = rhs.m_entityIdToBaseCache;
+        m_dataPatch = rhs.m_dataPatch;
+        m_dataFlags.CopyDataFlagsFrom(rhs.m_dataFlags);
+        m_instanceId = rhs.m_instanceId;
+        m_metadataEntity = rhs.m_metadataEntity;
+        return *this;
     }
 
     //=========================================================================
@@ -540,6 +585,50 @@ namespace AZ
     SliceComponent::SliceInstance::~SliceInstance()
     {
         delete m_instantiated;
+    }
+
+    //=========================================================================
+    // SliceComponent::SliceInstance::GenerateValidEntityFunction
+    //=========================================================================
+    SliceComponent::DataFlagsPerEntity::IsValidEntityFunction SliceComponent::SliceInstance::GenerateValidEntityFunction(const SliceInstance* instance)
+    {
+        auto isValidEntityFunction = [instance](EntityId entityId)
+        {
+            const EntityIdToEntityIdMap& entityIdToBaseMap = instance->GetEntityIdToBaseMap();
+            return entityIdToBaseMap.find(entityId) != entityIdToBaseMap.end();
+        };
+        return isValidEntityFunction;
+    }
+
+    //=========================================================================
+    // SliceComponent::SliceInstance::GetDataFlagsForPatching
+    //=========================================================================
+    DataPatch::FlagsMap SliceComponent::SliceInstance::GetDataFlagsForPatching() const
+    {
+        // Collect all entities' data flags
+        DataPatch::FlagsMap dataFlags;
+
+        for (auto& baseIdInstanceIdPair : GetEntityIdMap())
+        {
+            // Make the addressing relative to InstantiatedContainer (m_dataFlags stores flags relative to the individual entity)
+            DataPatch::AddressType addressPrefix;
+            addressPrefix.push_back(AZ_CRC("Entities", 0x50ec64e5));
+            addressPrefix.push_back(static_cast<u64>(baseIdInstanceIdPair.first));
+
+            for (auto& addressDataFlagsPair : m_dataFlags.GetEntityDataFlags(baseIdInstanceIdPair.second))
+            {
+                const DataPatch::AddressType& originalAddress = addressDataFlagsPair.first;
+
+                DataPatch::AddressType prefixedAddress;
+                prefixedAddress.reserve(addressPrefix.size() + originalAddress.size());
+                prefixedAddress.insert(prefixedAddress.end(), addressPrefix.begin(), addressPrefix.end());
+                prefixedAddress.insert(prefixedAddress.end(), originalAddress.begin(), originalAddress.end());
+
+                dataFlags.emplace(AZStd::move(prefixedAddress), addressDataFlagsPair.second);
+            }
+        }
+
+        return dataFlags;
     }
 
     //=========================================================================
@@ -602,30 +691,28 @@ namespace AZ
 
             AZ_Assert(!sourceObjects.m_metadataEntities.empty(), "Metadata Entities must exist at slice instantiation time");
 
-            AZ::IdUtils::Remapper<EntityId>::RemapIds(
-                instance->m_instantiated,
+            AZ::IdUtils::Remapper<EntityId>::ReplaceIdsAndIdRefs(instance->m_instantiated,
                 [&](const EntityId& originalId, bool isEntityId, const AZStd::function<EntityId()>& idGenerator) -> EntityId
                 {
-                    EntityId newId = customMapper ? customMapper(originalId, isEntityId, idGenerator) : idGenerator();
-                    auto insertIt = instance->m_baseToNewEntityIdMap.insert(AZStd::make_pair(originalId, newId));
-                    return insertIt.first->second;
-
-                }, dependentSlice->GetSerializeContext(), true);
-
-            AZ::IdUtils::Remapper<EntityId>::RemapIds(
-                instance->m_instantiated,
-                [instance](const EntityId& originalId, bool /*isEntityId*/, const AZStd::function<EntityId()>& /*idGenerator*/) -> EntityId
-                {
-                    auto findIt = instance->m_baseToNewEntityIdMap.find(originalId);
-                    if (findIt == instance->m_baseToNewEntityIdMap.end())
+                    if (isEntityId) // replace EntityId
                     {
-                        return originalId; // Referenced EntityId is not part of the slice, so keep the same id reference.
+                        EntityId newId = customMapper ? customMapper(originalId, isEntityId, idGenerator) : idGenerator();
+                        auto insertIt = instance->m_baseToNewEntityIdMap.insert(AZStd::make_pair(originalId, newId));
+                        return insertIt.first->second;
                     }
-                    else
+                    else // replace EntityRef
                     {
-                        return findIt->second; // return the remapped id
+                        auto findIt = instance->m_baseToNewEntityIdMap.find(originalId);
+                        if (findIt == instance->m_baseToNewEntityIdMap.end())
+                        {
+                            return originalId; // Referenced EntityId is not part of the slice, so keep the same id reference.
+                        }
+                        else
+                        {
+                            return findIt->second; // return the remapped id
+                        }
                     }
-                }, dependentSlice->GetSerializeContext(), false);
+                }, dependentSlice->GetSerializeContext());
 
             AZ_Assert(m_component, "We need a valid component to use this operation!");
 
@@ -699,6 +786,14 @@ namespace AZ
         return newInstance;
     }
 
+    void SliceComponent::SliceReference::RestoreAndClearCachedInstance(SliceInstance& cachedInstance)
+    {
+        auto instance = m_instances.emplace(cachedInstance);
+        cachedInstance.ClearInstantiated();
+        AddInstanceToEntityInfoMap(*instance.first);
+        instance.first->BuildReverseLookUp();
+    }
+
     //=========================================================================
     // SliceComponent::SliceReference::FindInstance
     //=========================================================================
@@ -722,14 +817,22 @@ namespace AZ
     //=========================================================================
     // SliceComponent::SliceReference::RemoveInstance
     //=========================================================================
+    SliceComponent::SliceReference::SliceInstances::iterator SliceComponent::SliceReference::RemoveInstance(SliceComponent::SliceReference::SliceInstances::iterator itr)
+    {
+        RemoveInstanceFromEntityInfoMap(*itr);
+        return m_instances.erase(itr);
+    }
+
+    //=========================================================================
+    // SliceComponent::SliceReference::RemoveInstance
+    //=========================================================================
     bool SliceComponent::SliceReference::RemoveInstance(SliceComponent::SliceInstance* instance)
     {
         AZ_Assert(instance, "Invalid instance provided to SliceReference::RemoveInstance");
         auto iter = m_instances.find(*instance);
         if (iter != m_instances.end())
         {
-            RemoveInstanceFromEntityInfoMap(*instance);
-            m_instances.erase(iter);
+            RemoveInstance(iter);
             return true;
         }
 
@@ -737,7 +840,7 @@ namespace AZ
     }
 
     //=========================================================================
-    // SliceComponent::SliceReference::RemoveInstance
+    // SliceComponent::SliceReference::RemoveEntity
     //=========================================================================
     bool SliceComponent::SliceReference::RemoveEntity(EntityId entityId, bool isDeleteEntity, SliceInstance* instance)
     {
@@ -747,35 +850,33 @@ namespace AZ
 
             if (!instance)
             {
-                return false; // can't find an instance the owns this entity
+                return false; // Can't find an instance that owns this entity
             }
         }
 
         auto entityIt = AZStd::find_if(instance->m_instantiated->m_entities.begin(), instance->m_instantiated->m_entities.end(), [entityId](Entity* entity) -> bool { return entity->GetId() == entityId; });
         if (entityIt != instance->m_instantiated->m_entities.end())
         {
-            if (isDeleteEntity)
-            {
-                delete *entityIt;
-            }
+            // RemoveEntity will be invoked again recursively if invoked with isDeleteEntity = true as the deleting the found entity
+            // would cause the Entity destructor to send a ComponentApplicationRequests::RemoveEntity event causing the ComponentApplication
+            // to send an ComponentApplicationEvents::OnEntityRemoved event that is handled by the EntityContext::OnEntityRemoved function which finally
+            // calls this function again with isDeleteEntity = false. Therefore the EntityInfoMap and the container of Entities needs to have the 
+            // current entity removed from it before deleting it
+            AZStd::unique_ptr<AZ::Entity> entityToDelete(isDeleteEntity ? *entityIt : nullptr);
             instance->m_instantiated->m_entities.erase(entityIt);
-            if (instance->m_entityIdToBaseCache.empty())
-            {
-                instance->BuildReverseLookUp();
-            }
 
             instance->m_dataFlags.ClearEntityDataFlags(entityId);
 
+            instance->BuildReverseLookUp();
             auto entityToBaseIt = instance->m_entityIdToBaseCache.find(entityId);
             bool entityToBaseExists = entityToBaseIt != instance->m_entityIdToBaseCache.end();
-            AZ_Assert(entityToBaseExists, "Reverse lookup cache is inconsistent, please check it's logic!");
-
+            // Reverse lookup was built from base cache, if entity is not found in one that means it is also not in the other
             if (entityToBaseExists)
             {
                 instance->m_baseToNewEntityIdMap.erase(entityToBaseIt->second);
                 instance->m_entityIdToBaseCache.erase(entityToBaseIt);
-                return true;
             }
+            return true;
         }
 
         return false;
@@ -809,16 +910,24 @@ namespace AZ
             return true;
         }
 
-        if (!m_asset.IsReady())
+        AZ::Data::AssetInfo assetInfo;
+        AZ::Data::AssetCatalogRequestBus::BroadcastResult(assetInfo, &AZ::Data::AssetCatalogRequestBus::Events::GetAssetInfoById, m_asset.GetId());
+        bool isAssetStillOnDisk = assetInfo.m_assetId.IsValid();
+
+        bool isCachedAssetReady = m_asset.IsReady();
+
+        if (!(isCachedAssetReady && isAssetStillOnDisk))
         {
             #if defined(AZ_ENABLE_TRACING)
-            Data::Asset<SliceAsset> owningAsset = Data::AssetManager::Instance().FindAsset(m_component->m_myAsset->GetId());
+            const Data::Asset<SliceAsset> owningAsset = m_component->m_myAsset ?
+                Data::Asset<SliceAsset>(Data::AssetManager::Instance().FindAsset(m_component->m_myAsset->GetId())) :
+                Data::Asset<SliceAsset>();
             AZ_Error("Slice", false, 
                 "Instantiation of %d slice instance(s) of asset %s failed - asset not ready or not found during instantiation of owning slice %s!" 
                 "Saving owning slice will lose data for these instances.",
                 m_instances.size(),
                 m_asset.ToString<AZStd::string>().c_str(),
-                owningAsset.ToString<AZStd::string>().c_str());
+                m_component->m_myAsset ? owningAsset.ToString<AZStd::string>().c_str() : "[Could not find owning slice]");
             #endif // AZ_ENABLE_TRACING
             return false;
         }
@@ -1047,7 +1156,7 @@ namespace AZ
                 if (entityInfoIt != assetEntityInfoMap.end())
                 {
                     ancestors.emplace_back(entityInfoIt->second.m_entity, SliceInstanceAddress(const_cast<SliceReference*>(this), const_cast<SliceInstance*>(&instance)));
-                    if (entityInfoIt->second.m_sliceAddress.IsValid())
+                    if (entityInfoIt->second.m_sliceAddress.GetReference())
                     {
                         return entityInfoIt->second.m_sliceAddress.GetReference()->GetInstanceEntityAncestry(assetEntityId, ancestors, maxLevels);
                     }
@@ -1066,54 +1175,70 @@ namespace AZ
         AZ_PROFILE_FUNCTION(AZ::Debug::ProfileCategory::AzCore);
 
         // Get source entities from the base asset (instantiate if needed)
-        InstantiatedContainer source(false);
-        m_asset.Get()->GetComponent()->GetEntities(source.m_entities);
-        m_asset.Get()->GetComponent()->GetAllMetadataEntities(source.m_metadataEntities);
+        InstantiatedContainer source(m_asset.Get()->GetComponent(), false);
 
         SerializeContext* serializeContext = m_asset.Get()->GetComponent()->GetSerializeContext();
 
         // Compute the delta/changes for each instance
         for (SliceInstance& instance : m_instances)
         {
-            // remap entity ids to the "original"
-            const EntityIdToEntityIdMap& reverseLookUp = instance.GetEntityIdToBaseMap();
-            IdUtils::Remapper<EntityId>::ReplaceIdsAndIdRefs(instance.m_instantiated, [&reverseLookUp](const EntityId& sourceId, bool /*isEntityId*/, const AZStd::function<EntityId()>& /*idGenerator*/) -> EntityId
-            {
-                auto findIt = reverseLookUp.find(sourceId);
-                if (findIt != reverseLookUp.end())
-                {
-                    return findIt->second;
-                }
-                else
-                {
-                    return sourceId;
-                }
-            }, serializeContext);
-
-            // Get data flags from source slice and slice instance
-            DataPatch::FlagsMap sourceDataFlags = m_asset.Get()->GetComponent()->GetDataFlagsForInstances().GetDataFlagsForPatching();
-            DataPatch::FlagsMap targetDataFlags = instance.GetDataFlags().GetDataFlagsForPatching(&instance.GetEntityIdToBaseMap());
-
-            // compute the delta (what we changed from the base slice)
-            instance.m_dataPatch.Create(&source, instance.m_instantiated, sourceDataFlags, targetDataFlags, serializeContext);
-
-            // remap entity ids back to the "instance onces"
-            IdUtils::Remapper<EntityId>::ReplaceIdsAndIdRefs(instance.m_instantiated, [&instance](const EntityId& sourceId, bool /*isEntityId*/, const AZStd::function<EntityId()>& /*idGenerator*/) -> EntityId
-            {
-                auto findIt = instance.m_baseToNewEntityIdMap.find(sourceId);
-                if (findIt != instance.m_baseToNewEntityIdMap.end())
-                {
-                    return findIt->second;
-                }
-                else
-                {
-                    return sourceId;
-                }
-            }, serializeContext);
-
-            // clean up orphaned data flags (ex: for entities that no longer exist).
-            instance.m_dataFlags.Cleanup(instance.m_instantiated->m_entities);
+            ComputeDataPatchForInstanceKnownToReference(instance, serializeContext, source);
         }
+    }
+
+    void SliceComponent::SliceReference::ComputeDataPatch(SliceInstance* instance)
+    {
+        if (instance == nullptr || m_instances.find(*instance) == m_instances.end())
+        {
+            AZ_Error("SliceComponent", false, "Cannot compute data patch for a slice instance that is not associated with this slice reference.");
+            return;
+        }
+        InstantiatedContainer source(m_asset.Get()->GetComponent(), false);
+
+        SerializeContext* serializeContext = m_asset.Get()->GetComponent()->GetSerializeContext();
+        ComputeDataPatchForInstanceKnownToReference(*instance, serializeContext, source);
+    }
+
+    void SliceComponent::SliceReference::ComputeDataPatchForInstanceKnownToReference(SliceInstance& instance, SerializeContext* serializeContext, InstantiatedContainer& sourceContainer)
+    {            
+        // remap entity ids to the "original"
+        const EntityIdToEntityIdMap& reverseLookUp = instance.GetEntityIdToBaseMap();
+        IdUtils::Remapper<EntityId>::ReplaceIdsAndIdRefs(instance.m_instantiated, [&reverseLookUp](const EntityId& sourceId, bool /*isEntityId*/, const AZStd::function<EntityId()>& /*idGenerator*/) -> EntityId
+        {
+            auto findIt = reverseLookUp.find(sourceId);
+            if (findIt != reverseLookUp.end())
+            {
+                return findIt->second;
+            }
+            else
+            {
+                return sourceId;
+            }
+        }, serializeContext);
+
+        // Get data flags from source slice and slice instance
+        DataPatch::FlagsMap sourceDataFlags = m_asset.Get()->GetComponent()->GetDataFlagsForInstances().GetDataFlagsForPatching();
+        DataPatch::FlagsMap targetDataFlags = instance.GetDataFlags().GetDataFlagsForPatching(&instance.GetEntityIdToBaseMap());
+
+        // compute the delta (what we changed from the base slice)
+        instance.m_dataPatch.Create(&sourceContainer, instance.m_instantiated, sourceDataFlags, targetDataFlags, serializeContext);
+
+        // remap entity ids back to the "instance onces"
+        IdUtils::Remapper<EntityId>::ReplaceIdsAndIdRefs(instance.m_instantiated, [&instance](const EntityId& sourceId, bool /*isEntityId*/, const AZStd::function<EntityId()>& /*idGenerator*/) -> EntityId
+        {
+            auto findIt = instance.m_baseToNewEntityIdMap.find(sourceId);
+            if (findIt != instance.m_baseToNewEntityIdMap.end())
+            {
+                return findIt->second;
+            }
+            else
+            {
+                return sourceId;
+            }
+        }, serializeContext);
+
+        // clean up orphaned data flags (ex: for entities that no longer exist).
+        instance.m_dataFlags.Cleanup(instance.m_instantiated->m_entities);
     }
 
     void SliceComponent::SliceReference::FixUpMetadataEntityForSliceInstance(SliceInstance* sliceInstance)
@@ -1258,6 +1383,7 @@ namespace AZ
 
         return const_cast<SliceComponent*>(this)->GetEntityInfoMap().size();
     }
+
     //=========================================================================
     // SliceComponent::GetMetadataEntityIds
     //=========================================================================
@@ -1364,10 +1490,39 @@ namespace AZ
             }
             else
             {
-                if (!slice.Instantiate(AZ::ObjectStream::FilterDescriptor(m_assetLoadFilterCB, m_filterFlags)))
+                bool instantiateSuccess = slice.Instantiate(AZ::ObjectStream::FilterDescriptor(m_assetLoadFilterCB, m_filterFlags));
+                if (instantiateSuccess)
+                {
+                    // Prune empty slice instances.
+                    for (SliceReference::SliceInstances::iterator itr = slice.m_instances.begin(); itr != slice.m_instances.end();)
+                    {
+                        if (itr->m_instantiated->m_entities.empty())
+                        {
+                            itr = slice.RemoveInstance(itr);
+                        }
+                        else
+                        {
+                            ++itr;
+                        }
+                    }
+                }
+                else
                 {
                     result = InstantiateResult::MissingDependency;
                 }
+            }
+        }
+
+        // Prune empty slice references.
+        for (SliceList::iterator itr = m_slices.begin(); itr != m_slices.end();)
+        {
+            if (itr->GetInstances().empty())
+            {
+                itr = RemoveSliceReference(itr);
+            }
+            else
+            {
+                ++itr;
             }
         }
 
@@ -1595,7 +1750,7 @@ namespace AZ
         }
 
         const SliceComponent::SliceInstanceAddress address = FindSlice(entity);
-        if (address.IsValid())
+        if (address.GetReference())
         {
             return address;
         }
@@ -1607,10 +1762,11 @@ namespace AZ
         {
             // We're creating an instance just to hold the entity we're re-adding. We don't want to instantiate the underlying asset.
             instance = reference->CreateEmptyInstance(restoreInfo.m_instanceId);
-
+            
             // Make sure the appropriate metadata entities are created with the instance
             InstantiatedContainer sourceObjects(false);
             sourceSlice->GetAllMetadataEntities(sourceObjects.m_metadataEntities);
+
             instance->m_instantiated = IdUtils::Remapper<EntityId>::CloneObjectAndGenerateNewIdsAndFixRefs(&sourceObjects, instance->m_baseToNewEntityIdMap, GetSerializeContext());
 
             // Find the instanced version of the source metadata entity from the asset associated with this reference
@@ -1729,7 +1885,7 @@ namespace AZ
         const AZ::SliceComponent::SliceInstanceAddress& sourceSubSliceInstanceAddress,
         AZ::SliceComponent::EntityIdToEntityIdMap* out_sourceToCloneEntityIdMap /*= nullptr*/, bool preserveIds /*= false*/)
     {
-        // Check if sourceSlceInstance belongs to this SliceComponent.
+        // Check if sourceSliceInstance belongs to this SliceComponent.
         if (sourceSliceInstance->m_instantiated->m_entities.empty() 
             || !FindEntity(sourceSliceInstance->m_instantiated->m_entities[0]->GetId()))
         {
@@ -1904,19 +2060,16 @@ namespace AZ
             return false;
         }
 
-        if (sliceAddress.IsValid())
+        SliceReference* sliceReference = sliceAddress.GetReference();
+
+        if (sliceReference->RemoveInstance(sliceAddress.GetInstance()))
         {
-            SliceReference* sliceReference = sliceAddress.GetReference();
-
-            if (sliceReference->RemoveInstance(sliceAddress.GetInstance()))
+            if (sliceReference->m_instances.empty())
             {
-                if (sliceReference->m_instances.empty())
-                {
-                    RemoveSlice(sliceReference);
-                }
-
-                return true;
+                RemoveSlice(sliceReference);
             }
+
+            return true;
         }
 
         return false;
@@ -1945,10 +2098,10 @@ namespace AZ
     //=========================================================================
     // SliceComponent::RemoveSliceReference
     //=========================================================================
-    void SliceComponent::RemoveSliceReference(SliceComponent::SliceList::iterator sliceReferenceIt)
+    SliceComponent::SliceList::iterator SliceComponent::RemoveSliceReference(SliceComponent::SliceList::iterator sliceReferenceIt)
     {
         Data::AssetBus::MultiHandler::BusDisconnect(sliceReferenceIt->GetSliceAsset().GetId());
-        m_slices.erase(sliceReferenceIt);
+        return m_slices.erase(sliceReferenceIt);
     }
 
     //=========================================================================
@@ -1993,10 +2146,12 @@ namespace AZ
                 auto entityIt = AZStd::find_if(m_entities.begin(), m_entities.end(), [entityId](Entity* entity) -> bool { return entity->GetId() == entityId; });
                 if (entityIt != m_entities.end())
                 {
-                    if (isDeleteEntity)
-                    {
-                        delete *entityIt;
-                    }
+                    // RemoveEntity will be invoked again recursively if invoked with isDeleteEntity = true as the deleting the found entity
+                    // would cause the Entity destructor to send a ComponentApplicationRequests::RemoveEntity event causing the ComponentApplication
+                    // to send an ComponentApplicationEvents::OnEntityRemoved event that is handled by the EntityContext::OnEntityRemoved function which finally
+                    // calls this function again with isDeleteEntity = false. Therefore the EntityInfoMap and the container of Entities needs to have the 
+                    // current entity removed from it before deleting it
+                    AZStd::unique_ptr<AZ::Entity> entityToDelete(isDeleteEntity ? *entityIt : nullptr);
                     m_dataFlagsForNewEntities.ClearEntityDataFlags(entityId);
                     m_entityInfoMap.erase(entityInfoMapIt);
                     m_entities.erase(entityIt);
@@ -2025,6 +2180,61 @@ namespace AZ
         }
 
         return false;
+    }
+
+    void SliceComponent::RemoveAllEntities(bool deleteEntities, bool removeEmptyInstances)
+    {
+        AZ_PROFILE_FUNCTION(AZ::Debug::ProfileCategory::AzCore);
+
+        // If we are deleting the entities, we need to do that one by one
+        if (deleteEntities)
+        {
+            for (auto entityIt = m_entities.begin(); entityIt != m_entities.end(); ++entityIt)
+            {
+                delete *entityIt;
+            }
+        }
+
+        m_entities.clear();
+
+        // Need to use the m_entityInfoMap to find and handle all of the instances, then we can clear it
+        for (auto entityInfo : m_entityInfoMap)
+        {
+            if (entityInfo.second.m_sliceAddress.GetInstance() == nullptr)
+            {
+                continue;
+            }
+
+            SliceReference* sliceReference = entityInfo.second.m_sliceAddress.GetReference();
+            SliceInstance* sliceInstance = entityInfo.second.m_sliceAddress.GetInstance();
+
+            if (sliceReference->RemoveEntity(entityInfo.first, deleteEntities, sliceInstance)
+                && removeEmptyInstances
+                && sliceInstance->m_instantiated->m_entities.empty())
+            {
+                RemoveSliceInstance(sliceInstance);
+            }
+        }
+
+        m_entityInfoMap.clear();
+    }
+
+    //=========================================================================
+    // SliceComponent::RemoveLooseEntity
+    //=========================================================================
+    void SliceComponent::RemoveLooseEntity(EntityId entityId)
+    {
+        auto entityIt = AZStd::find_if(
+            m_entities.begin(), 
+            m_entities.end(), 
+            [entityId](Entity* entity) -> bool { return entity->GetId() == entityId; });
+
+        if (entityIt != m_entities.end())
+        {
+            m_entities.erase(entityIt);
+            // Clearing EntityInfoMap will force it to be regenerated
+            m_entityInfoMap.clear();
+        }
     }
 
     //=========================================================================
@@ -2086,7 +2296,7 @@ namespace AZ
 
         // Sanity check that the root entity is owned by the reference
         SliceInstanceAddress rootSlice = FindSlice(toFlattenRoot);
-        if (!rootSlice || rootSlice.GetReference() != toFlatten)
+        if (!rootSlice.IsValid() || rootSlice.GetReference() != toFlatten)
         {
             AZ_Warning("Slice", false, "Attempted to flatten Slice Reference using a root entity it doesn't own");
             return false;
@@ -2142,7 +2352,7 @@ namespace AZ
                     auto isShared = AZStd::find_if(sharedAncestry.begin(), sharedAncestry.end(),
                         [ancestorAsset](const Ancestor& sharedAncestor) 
                         {
-                            return sharedAncestor.m_sliceAddress.GetReference()->GetSliceAsset() == ancestorAsset; 
+                            return sharedAncestor.m_sliceAddress.GetReference()->GetSliceAsset() == ancestorAsset;
                         });
 
                     // If it is keep checking
@@ -2237,11 +2447,11 @@ namespace AZ
     //=========================================================================
     const SliceComponent::EntityInfoMap& SliceComponent::GetEntityInfoMap() const
     {
-        // Don't build the entity info map until it's queried.
-        // The full map can't be built until the slice has been instantiated.
-        AZ_Assert(IsInstantiated(), "GetEntityInfoMap() should only be called on an instantiated slice");
+        AZ_Assert(IsInstantiated() || IsAllowPartialInstantiation(), "GetEntityInfoMap() should only be called on an instantiated or at least a partially initialized slice.");
+
         if (m_entityInfoMap.empty())
         {
+            // Don't build the entity info map until it's queried.
             const_cast<SliceComponent*>(this)->BuildEntityInfoMap();
         }
 
@@ -2327,6 +2537,16 @@ namespace AZ
 
         AZ::Data::AssetId myAssetId = m_myAsset->GetId();
 
+        AZStd::string sliceAssetPath;
+        AZ::Data::AssetCatalogRequestBus::BroadcastResult(sliceAssetPath, &AZ::Data::AssetCatalogRequests::GetAssetPathById, myAssetId);
+
+        if (!sliceAssetPath.empty())
+        {
+            // reload the slice asset from scratch to avoid the inconsistency between the data in memory and that on disk
+            Data::AssetManager::Instance().ReloadAsset(m_myAsset->GetId());
+            return;
+        }
+
         // One of our dependent assets has changed.
         // We need to identify any dependent assets that have changed, since there may be multiple
         // due to the nature of cascaded slice reloading.
@@ -2373,7 +2593,7 @@ namespace AZ
 
             bool recursionDetected = CheckContainsInstantiateCycle(dependentAsset.GetId());
             bool wasModified = (dependentAsset.Get() != slice.m_asset.Get());
-            
+
             if (wasModified || recursionDetected)
             {
                 // uninstantiate if its been instantiated:
@@ -2387,7 +2607,7 @@ namespace AZ
                     slice.m_isInstantiated = false;
                 }
             }
-            
+
             if (!recursionDetected)
             {
                 if (wasModified) // no need to do anything here if it wasn't actually changed.
@@ -2409,7 +2629,7 @@ namespace AZ
 
         // Rebuild entity info map based on new instantiations.
         RebuildEntityInfoMapIfNecessary();
-       
+
         // note that this call will destroy the "this" pointer, because the main editor context will respond to this by deleting and recreating all slices
         // (this call will cascade up the tree of inheritence all the way to the root.)
         // for this reason, we disconnect from the busses to prevent recursion.
@@ -2535,6 +2755,68 @@ namespace AZ
         CleanMetadataAssociations();
     }
 
+    void SliceComponent::RemoveAndCacheInstances(const SliceReferenceToInstancePtrs& instancesToRemove)
+    {
+        AZ_Assert(m_cachedSliceInstances.size() == 0, "Stale layer instances are cached. Your scene is in an invalid state.");
+        m_cachedSliceInstances.clear();
+        for (const auto& refToInstanceSet : instancesToRemove)
+        {
+            for (SliceInstance* instancePtr : refToInstanceSet.second)
+            {
+                refToInstanceSet.first->RemoveInstanceFromEntityInfoMap(*instancePtr);
+                m_cachedSliceInstances[refToInstanceSet.first->GetSliceAsset()].insert(*instancePtr);
+                // The instantiated list is now tracked by the cached data, make sure it's null so garbage data isn't deleted in the erase
+                // from the m_instances list.
+                instancePtr->m_instantiated = nullptr;
+                refToInstanceSet.first->m_instances.erase(*instancePtr);
+                // If the last instance was removed, then don't save the slice reference in the level.
+                if (refToInstanceSet.first->GetInstances().empty())
+                {
+                    for (SliceList::iterator sliceIter = m_slices.begin(); sliceIter != m_slices.end(); ++sliceIter)
+                    {
+                        if (&(*sliceIter) == refToInstanceSet.first)
+                        {
+                            m_cachedSliceReferences.emplace_back(AZStd::move(*sliceIter));
+                            m_slices.erase(sliceIter);
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+        
+    }
+
+    void SliceComponent::RestoreCachedInstances()
+    {
+        if (!m_cachedSliceReferences.empty())
+        {
+            for (SliceList::iterator sliceIter = m_cachedSliceReferences.begin(); sliceIter != m_cachedSliceReferences.end(); ++sliceIter)
+            {
+                m_slices.emplace_back(AZStd::move(*sliceIter));
+            }
+            m_cachedSliceReferences.clear();
+        }
+
+        for (auto& refToInstances : m_cachedSliceInstances)
+        {
+            for (SliceReference& slice : m_slices)
+            {
+                if (slice.GetSliceAsset() != refToInstances.first)
+                {
+                    continue;
+                }
+                for (SliceInstance& instance : refToInstances.second)
+                {
+                    slice.RestoreAndClearCachedInstance(instance);
+                }
+                break;
+            }
+            refToInstances.second.clear();
+        }
+        m_cachedSliceInstances.clear();
+    }
+
     void SliceComponent::CleanMetadataAssociations()
     {
         // Now we need to get all of the metadata entities that belong to all of our slice instances.
@@ -2577,6 +2859,7 @@ namespace AZ
     //=========================================================================
     void SliceComponent::BuildEntityInfoMap()
     {
+        AZ_PROFILE_FUNCTION(AZ::Debug::ProfileCategory::AzCore);
         m_entityInfoMap.clear();
 
         for (Entity* entity : m_entities)
@@ -2871,7 +3154,6 @@ namespace AZ
         auto foundEntityInfo = entityInfoMap.find(entityId);
         if (foundEntityInfo == entityInfoMap.end())
         {
-            AZ_Assert(false, "Entity is unknown to this slice");
             return 0;
         }
 
@@ -3102,6 +3384,112 @@ namespace AZ
         clonedComponent->m_slicesAreInstantiated = IsInstantiated();
 
         return clonedComponent;
+    }
+
+    void SliceComponent::EraseEntities(const EntityList& entities)
+    {
+        m_entities.erase(
+            AZStd::remove_if(
+                m_entities.begin(), m_entities.end(),
+                [&entities](const AZ::Entity* entity)
+        {
+            return AZStd::find(entities.begin(), entities.end(), entity) != entities.end();
+        }),
+        m_entities.end());
+    }
+
+    void SliceComponent::AddEntities(const EntityList& entities)
+    {
+        m_entities.insert(m_entities.end(), entities.begin(), entities.end());
+    }
+
+    void SliceComponent::ReplaceEntities(const EntityList& entities)
+    {
+        m_entities.clear();
+        AddEntities(entities);
+    }
+
+    void SliceComponent::AddSliceInstances(SliceAssetToSliceInstancePtrs& sliceInstances, AZStd::unordered_set<const SliceInstance*>& instancesOut)
+    {
+        // sliceInstances is in a map and can be searched, so iterate through m_slices first.
+        for (SliceReference& sliceReference : m_slices)
+        {
+            SliceAssetToSliceInstancePtrs::iterator instancesForReference = sliceInstances.find(sliceReference.GetSliceAsset());
+            if (instancesForReference == sliceInstances.end())
+            {
+                continue;
+            }
+
+            for (SliceInstance* instance : instancesForReference->second)
+            {
+                // Check if an instance already exists with this ID, if so replace it.
+                // We want to minimize lost work in the case of a conflict, and the newer
+                // instance is likely to have the latest work.
+                auto toErase = AZStd::remove_if(sliceReference.GetInstances().begin(), sliceReference.GetInstances().end(), [&instance, &sliceReference](const SliceInstance& existingInstance)
+                {
+                    if (instance->GetId() == existingInstance.GetId())
+                    {
+                        AZ_Warning("Slice", false, "Multiple slice instances with the same ID from slice %s were found. The last instance found has been loaded.",
+                            sliceReference.GetSliceAsset().GetHint().c_str());
+                        return true;
+                    }
+                    return false;
+                });
+                sliceReference.GetInstances().erase(toErase, sliceReference.GetInstances().end());
+                const auto& emplaceResult = sliceReference.GetInstances().emplace(AZStd::move(*instance));
+                // emplace returns a pair, with the first element being an iterator.
+                // Convert that iterator to a pointer, so the moved instances can be returned via the output parameter.
+                instancesOut.insert(&(*emplaceResult.first));
+
+                if (sliceReference.m_isInstantiated)
+                {
+                    // If this reference was already instantiated, instantiate the loaded instance.
+                    // This may occur when recovering a layer.
+                    sliceReference.InstantiateInstance(*emplaceResult.first, AZ::ObjectStream::FilterDescriptor(m_assetLoadFilterCB, m_filterFlags));
+                    // If the entity info map has already been populated, then add this new instance to it.
+                    // Otherwise, it will be added when the info map is populated later.
+                    if (!m_entityInfoMap.empty())
+                    {
+                        sliceReference.AddInstanceToEntityInfoMap(*emplaceResult.first);
+                    }
+                }
+            }
+            instancesForReference->second.clear();
+            sliceInstances.erase(instancesForReference);
+        }
+
+        // Anything left in the instance list are references that haven't been loaded yet, so load them.
+        for (AZStd::pair<Data::Asset<SliceAsset>, SliceInstancePtrSet> refToAdd : sliceInstances)
+        {
+            m_slices.push_back();
+            SliceReference *newReference = &m_slices.back();
+            newReference->m_component = this;
+            newReference->m_asset = refToAdd.first;
+
+            for (SliceInstance* instance : refToAdd.second)
+            {
+                // Don't need to force an instance instantiation because a new reference can't already be instantiated.
+                const auto& emplaceResult = newReference->GetInstances().emplace(AZStd::move(*instance));
+                // emplace returns a pair, with the first element being an iterator.
+                // Convert that iterator to a pointer, so the moved instances can be returned via the output parameter.
+                instancesOut.insert(&(*emplaceResult.first));
+            }
+            refToAdd.second.clear();
+
+            // Make sure the reference, and any instances of that reference, are initialized and setup.
+            newReference->Instantiate(AZ::ObjectStream::FilterDescriptor(m_assetLoadFilterCB, m_filterFlags));
+            // If the entity info map has already been populated, then add this new instance to it.
+            // Otherwise, it will be added when the info map is populated later.
+            if (!m_entityInfoMap.empty())
+            {
+                for (auto& instance : newReference->GetInstances())
+                {
+                    newReference->AddInstanceToEntityInfoMap(instance);
+                }
+            }
+        }
+        // Clear out the passed in instance map, it has invalid data now after the move calls.
+        sliceInstances.clear();
     }
 
     //=========================================================================

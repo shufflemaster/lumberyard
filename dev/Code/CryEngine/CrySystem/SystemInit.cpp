@@ -29,6 +29,9 @@
 #define SYSTEMINIT_CPP_SECTION_11 11
 #define SYSTEMINIT_CPP_SECTION_12 12
 #define SYSTEMINIT_CPP_SECTION_13 13
+#define SYSTEMINIT_CPP_SECTION_14 14
+#define SYSTEMINIT_CPP_SECTION_15 15
+#define SYSTEMINIT_CPP_SECTION_16 16
 #endif
 
 #if defined(MAP_LOADING_SLICING)
@@ -48,6 +51,7 @@
 #include <IEngineModule.h>
 #include <CryExtension/CryCreateClassInstance.h>
 #include <AzCore/IO/SystemFile.h> // for AZ_MAX_PATH_LEN
+#include <AzCore/Component/ComponentApplicationBus.h>
 #include <AzFramework/StringFunc/StringFunc.h>
 #include <AzFramework/Asset/AssetProcessorMessages.h>
 #include <AzFramework/Asset/AssetSystemBus.h>
@@ -165,8 +169,10 @@
 
 #if defined(ANDROID)
     #include <AzCore/Android/Utils.h>
-
     #include "AndroidConsole.h"
+#if !defined(AZ_RELEASE_BUILD)
+    #include "ThermalInfoAndroid.h"
+#endif // !defined(AZ_RELEASE_BUILD)
 #endif
 
 #if defined(AZ_PLATFORM_ANDROID) || defined(AZ_PLATFORM_APPLE_IOS)
@@ -197,6 +203,11 @@
 
 #ifdef WIN32
 extern LONG WINAPI CryEngineExceptionFilterWER(struct _EXCEPTION_POINTERS* pExceptionPointers);
+#endif
+
+#if defined(AZ_RESTRICTED_PLATFORM) && defined(AZ_PLATFORM_PROVO)
+#define AZ_RESTRICTED_SECTION SYSTEMINIT_CPP_SECTION_14
+    #include "Provo/SystemInit_cpp_provo.inl"
 #endif
 
 #ifdef AZ_PLATFORM_APPLE
@@ -248,8 +259,9 @@ CUNIXConsole* pUnixConsole;
 #define CRYENGINE_ENGINE_FOLDER "Engine"
 
 //////////////////////////////////////////////////////////////////////////
-#define CRYENGINE_DEFAULT_LOCALIZATION_LANG "english"
+#define CRYENGINE_DEFAULT_LOCALIZATION_LANG "en-US"
 
+#define LOCALIZATION_TRANSLATIONS_LIST_FILE_NAME "Libs/Localization/localization.xml"
 //////////////////////////////////////////////////////////////////////////
 // Where possible, these are defaults used to initialize cvars
 // System.cfg can then be used to override them
@@ -287,7 +299,11 @@ CUNIXConsole* pUnixConsole;
 #define AZ_RESTRICTED_SECTION_IMPLEMENTED
 #elif defined(AZ_RESTRICTED_PLATFORM)
 #define AZ_RESTRICTED_SECTION SYSTEMINIT_CPP_SECTION_1
-#include AZ_RESTRICTED_FILE(SystemInit_cpp, AZ_RESTRICTED_PLATFORM)
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/SystemInit_cpp_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/SystemInit_cpp_provo.inl"
+    #endif
 #endif
 #if defined(AZ_RESTRICTED_SECTION_IMPLEMENTED)
 #undef AZ_RESTRICTED_SECTION_IMPLEMENTED
@@ -527,7 +543,11 @@ static ESystemConfigPlatform GetDevicePlatform()
 #define AZ_RESTRICTED_SECTION_IMPLEMENTED
 #elif defined(AZ_RESTRICTED_PLATFORM)
 #define AZ_RESTRICTED_SECTION SYSTEMINIT_CPP_SECTION_2
-#include AZ_RESTRICTED_FILE(SystemInit_cpp, AZ_RESTRICTED_PLATFORM)
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/SystemInit_cpp_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/SystemInit_cpp_provo.inl"
+    #endif
 #endif
 #if defined(AZ_RESTRICTED_SECTION_IMPLEMENTED)
 #undef AZ_RESTRICTED_SECTION_IMPLEMENTED
@@ -560,7 +580,11 @@ static void GetSpecConfigFileToLoad(ICVar* pVar, AZStd::string& cfgFile, ESystem
         break;
 #if defined(AZ_RESTRICTED_PLATFORM)
 #define AZ_RESTRICTED_SECTION SYSTEMINIT_CPP_SECTION_3
-#include AZ_RESTRICTED_FILE(SystemInit_cpp, AZ_RESTRICTED_PLATFORM)
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/SystemInit_cpp_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/SystemInit_cpp_provo.inl"
+    #endif
 #endif
 #if defined(AZ_TOOLS_EXPAND_FOR_RESTRICTED_PLATFORMS)
 #define AZ_RESTRICTED_PLATFORM_EXPANSION(CodeName, CODENAME, codename, PrivateName, PRIVATENAME, privatename, PublicName, PUBLICNAME, publicname, PublicAuxName1, PublicAuxName2, PublicAuxName3)\
@@ -601,7 +625,11 @@ static void GetSpecConfigFileToLoad(ICVar* pVar, AZStd::string& cfgFile, ESystem
     case CONFIG_VERYHIGH_SPEC:
 #if defined(AZ_RESTRICTED_PLATFORM)
 #define AZ_RESTRICTED_SECTION SYSTEMINIT_CPP_SECTION_4
-#include AZ_RESTRICTED_FILE(SystemInit_cpp, AZ_RESTRICTED_PLATFORM)
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/SystemInit_cpp_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/SystemInit_cpp_provo.inl"
+    #endif
 #endif
         cfgFile += "_veryhigh.cfg";
         break;
@@ -746,7 +774,11 @@ static void LoadDetectedSpec(ICVar* pVar)
         }
 #if defined(AZ_RESTRICTED_PLATFORM)
 #define AZ_RESTRICTED_SECTION SYSTEMINIT_CPP_SECTION_5
-#include AZ_RESTRICTED_FILE(SystemInit_cpp, AZ_RESTRICTED_PLATFORM)
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/SystemInit_cpp_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/SystemInit_cpp_provo.inl"
+    #endif
 #endif
 #if defined(AZ_TOOLS_EXPAND_FOR_RESTRICTED_PLATFORMS)
 #define AZ_RESTRICTED_PLATFORM_EXPANSION(CodeName, CODENAME, codename, PrivateName, PRIVATENAME, privatename, PublicName, PUBLICNAME, publicname, PublicAuxName1, PublicAuxName2, PublicAuxName3)\
@@ -859,46 +891,61 @@ struct SCryEngineLanguageConfigLoader
 };
 
 //////////////////////////////////////////////////////////////////////////
-#if defined(AZ_HAS_DLL_SUPPORT) && !defined(AZ_MONOLITHIC_BUILD)
-WIN_HMODULE CSystem::LoadDynamiclibrary(const char* dllName) const
+#if !defined(AZ_MONOLITHIC_BUILD)
+
+AZStd::unique_ptr<AZ::DynamicModuleHandle> CSystem::LoadDynamiclibrary(const char* dllName) const
 {
-    WIN_HMODULE handle = nullptr;
+    AZStd::unique_ptr<AZ::DynamicModuleHandle> handle = AZ::DynamicModuleHandle::Create(dllName);
+
+    bool libraryLoaded = false;
 #ifdef WIN32
     if (m_binariesDir.empty())
     {
-        handle = CryLoadLibrary(dllName);
+        libraryLoaded = handle->Load(false);
     }
     else
     {
         char currentDirectory[1024];
         GetCurrentDirectory(sizeof(currentDirectory), currentDirectory);
         SetCurrentDirectory(m_binariesDir.c_str());
-        handle = CryLoadLibrary(dllName);
+        libraryLoaded = handle->Load(false);
         SetCurrentDirectory(currentDirectory);
     }
 #else
-    handle = CryLoadLibrary(dllName);
+    libraryLoaded = handle->Load(false);
 #endif
+    // We need to inject the environment first thing so that allocators are available immediately
+    InjectEnvironmentFunction injectEnv = handle->GetFunction<InjectEnvironmentFunction>(INJECT_ENVIRONMENT_FUNCTION);
+    if (injectEnv)
+    {
+        auto env = AZ::Environment::GetInstance();
+        injectEnv(env);
+    }
+
+    if (!libraryLoaded)
+    {
+        handle.release();
+    }
     return handle;
 }
 
 //////////////////////////////////////////////////////////////////////////
-WIN_HMODULE CSystem::LoadDLL(const char* dllName)
+AZStd::unique_ptr<AZ::DynamicModuleHandle> CSystem::LoadDLL(const char* dllName)
 {
     LOADING_TIME_PROFILE_SECTION(GetISystem());
 
     AZ_TracePrintf(AZ_TRACE_SYSTEM_WINDOW, "Loading DLL: %s", dllName);
 
-    WIN_HMODULE handle = LoadDynamiclibrary(dllName);
+    AZStd::unique_ptr<AZ::DynamicModuleHandle> handle = LoadDynamiclibrary(dllName);
 
     if (!handle)
     {
 #if defined(LINUX) || defined(APPLE)
-        AZ_Assert(false, "Error loading DLL: %s, error :  %s\n", dllName, dlerror());
+        AZ_Assert(false, "Error loading dylib: %s, error :  %s\n", dllName, dlerror());
 #else
-        AZ_Assert(false, "Error loading DLL: %s, error code %d", dllName, GetLastError());
+        AZ_Assert(false, "Error loading dll: %s, error code %d", dllName, GetLastError());
 #endif
-        return 0;
+        return handle;
     }
 
     //////////////////////////////////////////////////////////////////////////
@@ -906,8 +953,8 @@ WIN_HMODULE CSystem::LoadDLL(const char* dllName)
     //////////////////////////////////////////////////////////////////////////
     string moduleName = PathUtil::GetFileName(dllName);
 
-    typedef void*(* PtrFunc_ModuleInitISystem)(ISystem* pSystem, const char* moduleName);
-    PtrFunc_ModuleInitISystem pfnModuleInitISystem = (PtrFunc_ModuleInitISystem) CryGetProcAddress(handle, DLL_MODULE_INIT_ISYSTEM);
+    typedef void*(*PtrFunc_ModuleInitISystem)(ISystem* pSystem, const char* moduleName);
+    PtrFunc_ModuleInitISystem pfnModuleInitISystem = handle->GetFunction<PtrFunc_ModuleInitISystem>(DLL_MODULE_INIT_ISYSTEM);
     if (pfnModuleInitISystem)
     {
         pfnModuleInitISystem(this, moduleName.c_str());
@@ -915,8 +962,9 @@ WIN_HMODULE CSystem::LoadDLL(const char* dllName)
 
     return handle;
 }
-#endif //#if defined(AZ_HAS_DLL_SUPPORT) && !defined(AZ_MONOLITHIC_BUILD)
 
+// TODO:DLL  #endif //#if defined(AZ_HAS_DLL_SUPPORT) && !defined(AZ_MONOLITHIC_BUILD)
+#endif //if !defined(AZ_MONOLITHIC_BUILD)
 //////////////////////////////////////////////////////////////////////////
 bool CSystem::LoadEngineDLLs()
 {
@@ -928,14 +976,19 @@ bool CSystem::UnloadDLL(const char* dllName)
 {
     bool isSuccess = false;
 
-    WIN_HMODULE const hModule = stl::find_in_map(m_moduleDLLHandles, dllName, nullptr);
-
-    if (hModule != nullptr)
+    CCryNameCRC key(dllName);
+    AZStd::unique_ptr<AZ::DynamicModuleHandle> empty;
+    AZStd::unique_ptr<AZ::DynamicModuleHandle>& hModule = stl::find_in_map_ref(m_moduleDLLHandles, key, empty);
+    if ((hModule) && (hModule->IsLoaded()))
     {
-        CryComment("Unloading DLL: %s", dllName);
-        CryFreeLibrary(hModule);
-        m_moduleDLLHandles.erase(dllName);
-        isSuccess = true;
+        DetachEnvironmentFunction detachEnv = hModule->GetFunction<DetachEnvironmentFunction>(DETACH_ENVIRONMENT_FUNCTION);
+        if (detachEnv)
+        {
+            detachEnv();
+        }
+
+        isSuccess = hModule->Unload();
+        hModule.release();
     }
 
     return isSuccess;
@@ -977,7 +1030,22 @@ bool CSystem::InitializeEngineModule(const char* dllName, const char* moduleClas
         ZeroStruct(memStart);
     }
 
-    stack_string dllfile = dllName;
+    stack_string dllfile = "";
+
+
+#if defined(AZ_RESTRICTED_PLATFORM)
+#define AZ_RESTRICTED_SECTION SYSTEMINIT_CPP_SECTION_16
+#if defined(AZ_PLATFORM_XENIA)
+#include "Xenia/SystemInit_cpp_xenia.inl"
+#elif defined(AZ_PLATFORM_PROVO)
+#include "Provo/SystemInit_cpp_provo.inl"
+#endif
+#endif
+#if defined(AZ_RESTRICTED_SECTION_IMPLEMENTED)
+#undef AZ_RESTRICTED_SECTION_IMPLEMENTED
+#else 
+
+    dllfile.append(dllName);
 
 #if defined(LINUX)
     dllfile = "lib" + PathUtil::ReplaceExtension(dllfile, "so");
@@ -990,15 +1058,17 @@ bool CSystem::InitializeEngineModule(const char* dllName, const char* moduleClas
     dllfile = PathUtil::ReplaceExtension(dllfile, "dll");
 #endif
 
+#endif
+
 #if !defined(AZ_MONOLITHIC_BUILD)
-    WIN_HMODULE hModule = LoadDLL(dllfile.c_str());
-    if (!hModule)
+
+    m_moduleDLLHandles.insert(std::make_pair(dllfile.c_str(), LoadDLL(dllfile.c_str())));
+    if (!m_moduleDLLHandles[dllfile.c_str()])
     {
         return bResult;
     }
-    m_moduleDLLHandles.insert(std::make_pair(dllfile.c_str(), hModule));
-#endif // #if !defined(AZ_MONOLITHIC_BUILD)
 
+#endif // #if !defined(AZ_MONOLITHIC_BUILD)
 
     AZStd::shared_ptr<IEngineModule> pModule;
     if (CryCreateClassInstance(moduleClassName, pModule))
@@ -1011,7 +1081,7 @@ bool CSystem::InitializeEngineModule(const char* dllName, const char* moduleClas
         GetIMemoryManager()->GetProcessMemInfo(memEnd);
 
         uint64 memUsed = memEnd.WorkingSetSize - memStart.WorkingSetSize;
-        AZ_TracePrintf("Initializing %s %s, MemUsage=%uKb", dllName, pModule ? "done" : "failed", uint32(memUsed / 1024));
+        AZ_TracePrintf(AZ_TRACE_SYSTEM_WINDOW, "Initializing %s %s, MemUsage=%uKb", dllName, pModule ? "done" : "failed", uint32(memUsed / 1024));
     }
 
     return bResult;
@@ -1062,7 +1132,6 @@ bool CSystem::UnloadEngineModule(const char* dllName, const char* moduleClassNam
     return isSuccess;
 }
 
-
 //////////////////////////////////////////////////////////////////////////
 void CSystem::ShutdownModuleLibraries()
 {
@@ -1071,15 +1140,16 @@ void CSystem::ShutdownModuleLibraries()
     {
         typedef void*( * PtrFunc_ModuleShutdownISystem )(ISystem* pSystem);
 
-        PtrFunc_ModuleShutdownISystem pfnModuleShutdownISystem =
-            reinterpret_cast<PtrFunc_ModuleShutdownISystem>(CryGetProcAddress(iterator->second, DLL_MODULE_SHUTDOWN_ISYSTEM));
-
+        PtrFunc_ModuleShutdownISystem pfnModuleShutdownISystem = iterator->second->GetFunction<PtrFunc_ModuleShutdownISystem>(DLL_MODULE_SHUTDOWN_ISYSTEM);
         if (pfnModuleShutdownISystem)
         {
             pfnModuleShutdownISystem(this);
         }
-
-        FreeLib(iterator->second);
+        if (iterator->second->IsLoaded())
+        {
+            iterator->second->Unload();
+        }
+        iterator->second.release();
     }
 
     m_moduleDLLHandles.clear();
@@ -1094,7 +1164,11 @@ bool CSystem::OpenRenderLibrary(const char* t_rend, const SSystemInitParams& ini
 
 #if defined(AZ_RESTRICTED_PLATFORM)
 #define AZ_RESTRICTED_SECTION SYSTEMINIT_CPP_SECTION_6
-#include AZ_RESTRICTED_FILE(SystemInit_cpp, AZ_RESTRICTED_PLATFORM)
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/SystemInit_cpp_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/SystemInit_cpp_provo.inl"
+    #endif
 #endif
 #if defined(AZ_RESTRICTED_SECTION_IMPLEMENTED)
 #undef AZ_RESTRICTED_SECTION_IMPLEMENTED
@@ -1290,7 +1364,11 @@ bool CSystem::OpenRenderLibrary(int type, const SSystemInitParams& initParams)
 #endif // !defined(DEDICATED_SERVER)
 #if defined(AZ_RESTRICTED_PLATFORM)
 #define AZ_RESTRICTED_SECTION SYSTEMINIT_CPP_SECTION_7
-#include AZ_RESTRICTED_FILE(SystemInit_cpp, AZ_RESTRICTED_PLATFORM)
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/SystemInit_cpp_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/SystemInit_cpp_provo.inl"
+    #endif
 #endif
 
 #if defined(DEDICATED_SERVER)
@@ -1511,10 +1589,20 @@ bool CSystem::InitRenderer(WIN_HINSTANCE hinst, WIN_HWND hwnd, const SSystemInit
         {
             // Ideally we would probably want to clamp this at the source,
             // but I don't believe cvars support specifying a valid range.
-            const float scaleFactor = AZ::GetClamp(m_rWidthAndHeightAsFractionOfScreenSize->GetFVal(), 0.1f, 1.0f);
+            float scaleFactor = 1.0f;
+
+            if(IsTablet())
+            {
+                scaleFactor = AZ::GetClamp(m_rTabletWidthAndHeightAsFractionOfScreenSize->GetFVal(), 0.1f, 1.0f);
+            }
+            else
+            {
+                scaleFactor = AZ::GetClamp(m_rWidthAndHeightAsFractionOfScreenSize->GetFVal(), 0.1f, 1.0f);
+            }
+
             displayWidth *= scaleFactor;
             displayHeight *= scaleFactor;
-
+            
             const int maxWidth = m_rMaxWidth->GetIVal();
             if (maxWidth > 0 && maxWidth < displayWidth)
             {
@@ -1557,7 +1645,7 @@ bool CSystem::InitRenderer(WIN_HINSTANCE hinst, WIN_HWND hwnd, const SSystemInit
         AZ_Assert(retVal, "Renderer failed to initialize correctly.");
         return retVal;
 #else   // WIN32
-        WIN_HWND h = m_env.pRenderer->Init(0, 0, m_rWidth->GetIVal(), m_rHeight->GetIVal(), m_rColorBits->GetIVal(), m_rDepthBits->GetIVal(), m_rStencilBits->GetIVal(), m_rFullscreen->GetIVal() ? true : false, initParams.bEditor, hinst, hwnd);
+        WIN_HWND h = m_env.pRenderer->Init(0, 0, m_rWidth->GetIVal(), m_rHeight->GetIVal(), m_rColorBits->GetIVal(), m_rDepthBits->GetIVal(), m_rStencilBits->GetIVal(), m_rFullscreen->GetIVal() ? true : false, initParams.bEditor, hinst, hwnd, false, nullptr, initParams.bShaderCacheGen);
         InitPhysicsRenderer(initParams);
 
 #if (defined(LINUX) && !defined(AZ_PLATFORM_ANDROID))
@@ -1565,12 +1653,17 @@ bool CSystem::InitRenderer(WIN_HINSTANCE hinst, WIN_HWND hwnd, const SSystemInit
 #define AZ_RESTRICTED_SECTION_IMPLEMENTED
 #elif defined(AZ_RESTRICTED_PLATFORM)
 #define AZ_RESTRICTED_SECTION SYSTEMINIT_CPP_SECTION_8
-#include AZ_RESTRICTED_FILE(SystemInit_cpp, AZ_RESTRICTED_PLATFORM)
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/SystemInit_cpp_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/SystemInit_cpp_provo.inl"
+    #endif
 #endif
 #if defined(AZ_RESTRICTED_SECTION_IMPLEMENTED)
 #undef AZ_RESTRICTED_SECTION_IMPLEMENTED
 #else
-        if (h)
+        bool retVal = (initParams.bShaderCacheGen || h != 0);
+        if (retVal)
         {
             return true;
         }
@@ -1788,7 +1881,11 @@ bool CSystem::InitPhysics(const SSystemInitParams& initParams)
     const char* moduleName = "EngineModule_CryPhysics";
 #if defined(AZ_RESTRICTED_PLATFORM)
 #define AZ_RESTRICTED_SECTION SYSTEMINIT_CPP_SECTION_9
-#include AZ_RESTRICTED_FILE(SystemInit_cpp, AZ_RESTRICTED_PLATFORM)
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/SystemInit_cpp_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/SystemInit_cpp_provo.inl"
+    #endif
 #endif
 #if defined (AZ_RESTRICTED_SECTION_IMPLEMENTED)
 #undef AZ_RESTRICTED_SECTION_IMPLEMENTED
@@ -2172,7 +2269,10 @@ bool CSystem::LaunchAssetProcessor()
     AzFramework::ApplicationRequests::Bus::BroadcastResult(appRoot, &AzFramework::ApplicationRequests::GetAppRoot);
     if (appRoot != nullptr)
     {
-        AZStd::string engineBinFolder = AZStd::string::format("%s%s", appRoot, BINFOLDER_NAME);
+        AZStd::string_view binFolderName;
+        AZ::ComponentApplicationBus::BroadcastResult(binFolderName, &AZ::ComponentApplicationRequests::GetBinFolder);
+
+        AZStd::string engineBinFolder = AZStd::string::format("%s%s", appRoot, binFolderName.data());
         azstrncpy(workingDir, AZ_ARRAY_SIZE(workingDir), engineBinFolder.c_str(), engineBinFolder.length());
 
         AZStd::string engineAssetProcessorPath = AZStd::string::format("%s%s%s%s",
@@ -2314,8 +2414,12 @@ bool CSystem::ConnectToAssetProcessor(const SSystemInitParams& initParams, bool 
             //however if we timeout, meaning it never negotiated then
             //we can present that information to the user
 
+            // this assumes that Asset Processor is running on LocalHost, so technically, 2000 milliseconds grace time is massive overkill
+            // but just in case its busy, we give it that much extra time
+            const int numMillisecondsToWaitForConnect = 2000;
+
             //we should be able to connect
-            while (!engineConnection->IsConnected() && AZStd::chrono::duration_cast<AZStd::chrono::milliseconds>(AZStd::chrono::system_clock::now() - start) < AZStd::chrono::milliseconds(5000))
+            while (!engineConnection->IsConnected() && AZStd::chrono::duration_cast<AZStd::chrono::milliseconds>(AZStd::chrono::system_clock::now() - start) < AZStd::chrono::milliseconds(numMillisecondsToWaitForConnect))
             {
                 //update the feedback text to animate and pump every 250 milliseconds
                 if (m_pUserCallback && AZStd::chrono::duration_cast<AZStd::chrono::milliseconds>(AZStd::chrono::system_clock::now() - last) >= AZStd::chrono::milliseconds(250))
@@ -2545,13 +2649,20 @@ bool CSystem::InitFileSystem(const SSystemInitParams& initParams)
 
 #if defined(REMOTE_ASSET_PROCESSOR)
 
-    bool allowedEngineConnection = !m_env.IsInToolMode() && !initParams.bMinimal && !initParams.bTestMode;
+    bool allowedEngineConnection = !m_env.IsInToolMode() && !initParams.bTestMode;
     bool allowedRemoteIO = allowedEngineConnection && initParams.remoteFileIO && !m_env.IsEditor();
     bool connInitialized = false;
 
+    auto GetConnectionIdentifier = [](auto& env)
+    {
+        using namespace AzFramework::AssetSystem::ConnectionIdentifiers;
+
+        return env.IsEditor() ? Editor : Game;
+    };
+
     AZStd::string branch = initParams.branchToken;
     AZStd::string platform = m_env.pSystem->GetAssetsPlatform();
-    AZStd::string identifier = m_env.IsEditor() ? "EDITOR" : "GAME";
+    AZStd::string identifier = GetConnectionIdentifier(m_env);
     EBUS_EVENT_RESULT(connInitialized, AzFramework::AssetSystemRequestBus, ConfigureSocketConnection, branch, platform, identifier);
 
     AzFramework::AssetSystem::AssetProcessorConnection* engineConnection = static_cast<AzFramework::AssetSystem::AssetProcessorConnection*>(AzFramework::SocketConnection::GetInstance());
@@ -2683,8 +2794,10 @@ bool CSystem::InitFileSystem(const SSystemInitParams& initParams)
         }
 
 #if defined(AZ_PLATFORM_WINDOWS)
-        // on windows, we might be running editor and game and multiple games and so on (consoles cant do this)
-        // pick a non-locked cache, since shaders actually require separate caches:
+        // Search for a non-locked cache directory because shaders require separate caches for each running instance.
+        // We only need to do this check for Windows, because consoles can't have multiple instances running simultaneously.
+        // Ex: running editor and game, running multiple games, or multiple non-interactive editor instances 
+        // for parallel level exports.  
 
         string originalPath = finalCachePath;
 #if defined(REMOTE_ASSET_PROCESSOR)
@@ -2692,7 +2805,14 @@ bool CSystem::InitFileSystem(const SSystemInitParams& initParams)
 #endif
         {
             int attemptNumber = 0;
-            const int maxAttempts = 16;
+
+            // The number of max attempts ultimately dictates the number of Lumberyard instances that can run
+            // simultaneously.  This should be a reasonably high number so that it doesn't artificially limit
+            // the number of instances (ex: parallel level exports via multiple Editor runs).  It also shouldn't 
+            // be set *infinitely* high - each cache folder is GBs in size, and finding a free directory is a 
+            // linear search, so the more instances we allow, the longer the search will take.  
+            // 128 seems like a reasonable compromise.
+            constexpr int maxAttempts = 128;
 
             char workBuffer[AZ_MAX_PATH_LEN] = { 0 };
             while (attemptNumber < maxAttempts)
@@ -2980,7 +3100,6 @@ bool CSystem::InitAudioSystem(const SSystemInitParams& initParams)
 
         if (m_bDedicatedServer)
         {
-            bAudioInitSuccess = true;
             AZ_Printf(AZ_TRACE_SYSTEM_WINDOW, "<Audio>: Running with NULL Audio System on Dedicated Server.");
         }
         else
@@ -3092,29 +3211,34 @@ void CSystem::InitLocalization()
         static_cast<CCryPak* const>(m_env.pCryPak)->SetLocalizationFolder(g_cvars.sys_localization_folder->GetString());
     }
 
-    string language = CRYENGINE_DEFAULT_LOCALIZATION_LANG;
+    // Removed line that assigned language based on a #define
 
     if (m_pLocalizationManager == nullptr)
     {
         m_pLocalizationManager = new CLocalizedStringsManager(this);
     }
 
-    pCVar = m_env.pConsole != 0 ? m_env.pConsole->GetCVar("g_language") : 0;
-    if (pCVar)
+    // Platform-specific implementation of getting the system language
+    ILocalizationManager::EPlatformIndependentLanguageID languageID = m_pLocalizationManager->GetSystemLanguage();
+    if (!m_pLocalizationManager->IsLanguageSupported(languageID))
     {
-        if (strlen(pCVar->GetString()) == 0)
-        {
-            pCVar->Set(language);
-        }
-        else
-        {
-            language = pCVar->GetString();
-        }
+        languageID = ILocalizationManager::EPlatformIndependentLanguageID::ePILID_English_US;
     }
-    GetLocalizationManager()->SetLanguage(language);
 
-    // if the language value cannot be found, let's default to the english pak
-    OpenLanguagePak(language);
+    string language = m_pLocalizationManager->LangNameFromPILID(languageID);
+    m_pLocalizationManager->SetLanguage(language.c_str());
+    if (m_pLocalizationManager->GetLocalizationFormat() == 1)
+    {
+        string translationsListXML = LOCALIZATION_TRANSLATIONS_LIST_FILE_NAME;
+        m_pLocalizationManager->InitLocalizationData(translationsListXML);
+
+        m_pLocalizationManager->LoadAllLocalizationData();
+    }
+    else
+    {
+        // if the language value cannot be found, let's default to the english pak
+        OpenLanguagePak(language);
+    }
 
     pCVar = m_env.pConsole != 0 ? m_env.pConsole->GetCVar("g_languageAudio") : 0;
     if (pCVar)
@@ -3131,7 +3255,6 @@ void CSystem::InitLocalization()
     OpenLanguageAudioPak(language);
 }
 
-//////////////////////////////////////////////////////////////////////////
 void CSystem::OpenBasicPaks()
 {
     static bool bBasicPaksLoaded = false;
@@ -3153,20 +3276,30 @@ void CSystem::OpenBasicPaks()
     // Open engine packs
     //////////////////////////////////////////////////////////////////////////
 
+    const char* const assetsDir = "@assets@";
+    const char* shaderCachePakDir = "@assets@/shadercache.pak";
+    const char* shaderCacheStartupPakDir = "@assets@/shadercachestartup.pak";
+
     // After game paks to have same search order as with files on disk
-    m_env.pCryPak->OpenPack("@assets@", "Engine.pak");
-    m_env.pCryPak->OpenPack("@assets@", "ShaderCache.pak");
-    m_env.pCryPak->OpenPack("@assets@", "ShaderCacheStartup.pak");
-    m_env.pCryPak->OpenPack("@assets@", "Shaders.pak");
-    m_env.pCryPak->OpenPack("@assets@", "ShadersBin.pak");
+    m_env.pCryPak->OpenPack(assetsDir, "Engine.pak");
+
+    #if defined(AZ_RESTRICTED_PLATFORM) && defined(AZ_PLATFORM_PROVO)
+        #define AZ_RESTRICTED_SECTION SYSTEMINIT_CPP_SECTION_15
+        #include "Provo/SystemInit_cpp_provo.inl"
+    #endif
+
+    m_env.pCryPak->OpenPack(assetsDir, shaderCachePakDir);
+    m_env.pCryPak->OpenPack(assetsDir, shaderCacheStartupPakDir);
+    m_env.pCryPak->OpenPack(assetsDir, "Shaders.pak");
+    m_env.pCryPak->OpenPack(assetsDir, "ShadersBin.pak");
 
 #ifdef AZ_PLATFORM_ANDROID
     // Load Android Obb files if available
     const char* obbStorage = AZ::Android::Utils::GetObbStoragePath();
     AZStd::string mainObbPath = AZStd::move(AZStd::string::format("%s/%s", obbStorage, AZ::Android::Utils::GetObbFileName(true)));
     AZStd::string patchObbPath = AZStd::move(AZStd::string::format("%s/%s", obbStorage, AZ::Android::Utils::GetObbFileName(false)));
-    m_env.pCryPak->OpenPack("@assets@", mainObbPath.c_str());
-    m_env.pCryPak->OpenPack("@assets@", patchObbPath.c_str());
+    m_env.pCryPak->OpenPack(assetsDir, mainObbPath.c_str());
+    m_env.pCryPak->OpenPack(assetsDir, patchObbPath.c_str());
 #endif //AZ_PLATFORM_ANDROID
 
     InlineInitializationProcessing("CSystem::OpenBasicPaks OpenPacks( Engine... )");
@@ -3182,7 +3315,7 @@ void CSystem::OpenBasicPaks()
             string modFolder = "Mods\\";
             modFolder += pModArg->GetValue();
             modFolder += "\\*.pak";
-            GetIPak()->OpenPacks("@assets@", modFolder.c_str(), ICryPak::FLAGS_PATH_REAL | ICryArchive::FLAGS_OVERRIDE_PAK);
+            GetIPak()->OpenPacks(assetsDir, modFolder.c_str(), ICryPak::FLAGS_PATH_REAL | ICryArchive::FLAGS_OVERRIDE_PAK);
         }
     }
 #endif // !defined(_RELEASE)
@@ -3196,7 +3329,9 @@ void CSystem::OpenLanguagePak(const char* sLanguage)
 {
     // Don't attempt to open a language PAK file if the game doesn't have a
     // loc folder configured.
-    if (!GetLocalizationManager()->ProjectUsesLocalization())
+    bool projUsesLocalization = false;
+    LocalizationManagerRequestBus::BroadcastResult(projUsesLocalization, &LocalizationManagerRequestBus::Events::ProjectUsesLocalization);
+    if (!projUsesLocalization)
     {
         return;
     }
@@ -3233,7 +3368,9 @@ void CSystem::OpenLanguageAudioPak(const char* sLanguage)
 {
     // Don't attempt to open a language PAK file if the game doesn't have a
     // loc folder configured.
-    if (!GetLocalizationManager()->ProjectUsesLocalization())
+    bool projUsesLocalization = false;
+    LocalizationManagerRequestBus::BroadcastResult(projUsesLocalization, &LocalizationManagerRequestBus::Events::ProjectUsesLocalization);
+    if (!projUsesLocalization)
     {
         return;
     }
@@ -3251,12 +3388,12 @@ void CSystem::OpenLanguageAudioPak(const char* sLanguage)
     }
 
     // load localized pak with crc32 filenames on consoles to save memory.
-    string sLocalizedPath;
-    GetLocalizedAudioPath(sLanguage, sLocalizedPath);
+    string sLocalizedPath = "loc.pak";
+
     if (!m_env.pCryPak->OpenPacks(sLocalizationFolder.c_str(), sLocalizedPath, nPakFlags))
     {
         // make sure the localized language is found - not really necessary, for TC
-        AZ_Printf(AZ_TRACE_SYSTEM_WINDOW, "Localized language content(%s) not available or modified from the original installation.", sLanguage);
+        AZ_Error(AZ_TRACE_SYSTEM_WINDOW, false, "Localized language content(%s) not available or modified from the original installation.", sLanguage);
     }
 
     //Debugging code for profiling memory usage of pak system
@@ -3429,7 +3566,6 @@ bool CSystem::Init(const SSystemInitParams& startupParams)
         m_bNoCrashDialog = true;
         m_env.bNoAssertDialog = true; //this also suppresses CryMessageBox
         g_cvars.sys_no_crash_dialog = true;
-        AddPlatformOSCreateFlag(IPlatformOS::eCF_NoDialogs);
     }
 
 #if defined(AZ_PLATFORM_LINUX)
@@ -3439,17 +3575,10 @@ bool CSystem::Init(const SSystemInitParams& startupParams)
     
     m_pCmdLine = new CCmdLine(startupParams.szSystemCmdLine);
 
-#if !defined(_RELEASE)
-    if (m_pCmdLine->FindArg(eCLAT_Pre, "noprompt"))
-    {
-        AddPlatformOSCreateFlag(IPlatformOS::eCF_NoDialogs);
-    }
-#endif // !defined(_RELEASE)
-
     //////////////////////////////////////////////////////////////////////////
     // Create PlatformOS
     //////////////////////////////////////////////////////////////////////////
-    m_pPlatformOS.reset(IPlatformOS::Create(m_PlatformOSCreateFlags));
+    m_pPlatformOS.reset(IPlatformOS::Create());
     InlineInitializationProcessing("CSystem::Init PlatformOS");
     
         AZCoreLogSink::Connect();
@@ -3839,6 +3968,8 @@ bool CSystem::Init(const SSystemInitParams& startupParams)
             CreateRendererVars(startupParams);
         }
 
+        // Need to load the engine.pak that includes the config files needed during initialization
+        m_env.pCryPak->OpenPack("@assets@", "Engine.pak");
 #if defined(AZ_PLATFORM_ANDROID) || defined(AZ_PLATFORM_APPLE_IOS)
         MobileSysInspect::LoadDeviceSpecMapping();
 #endif    
@@ -4057,6 +4188,10 @@ bool CSystem::Init(const SSystemInitParams& startupParams)
         }
 
         InlineInitializationProcessing("CSystem::Init InitRenderer");
+
+#if !defined(AZ_RELEASE_BUILD) && defined(AZ_PLATFORM_ANDROID)
+        m_thermalInfoHandler = AZStd::make_unique<ThermalInfoAndroidHandler>();
+#endif
 
         if (m_env.pCryFont)
         {
@@ -5969,7 +6104,11 @@ void CSystem::CreateSystemVars()
         int nDefaultRenderSplashScreen = 1;
 #if defined(AZ_RESTRICTED_PLATFORM)
 #define AZ_RESTRICTED_SECTION SYSTEMINIT_CPP_SECTION_10
-#include AZ_RESTRICTED_FILE(SystemInit_cpp, AZ_RESTRICTED_PLATFORM)
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/SystemInit_cpp_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/SystemInit_cpp_provo.inl"
+    #endif
 #endif
         REGISTER_CVAR2("sys_rendersplashscreen", &g_cvars.sys_rendersplashscreen, nDefaultRenderSplashScreen, VF_NULL,
             "Render the splash screen during game initialization");
@@ -6052,27 +6191,27 @@ void CSystem::CreateSystemVars()
     m_sys_profile = REGISTER_INT("profile", 0, 0, "Allows CPU profiling\n"
             "Usage: profile #\n"
             "Where # sets the profiling to:\n"
-            "	0: Profiling off\n"
-            "	1: Self Time\n"
-            "	2: Hierarchical Time\n"
-            "	3: Extended Self Time\n"
-            "	4: Extended Hierarchical Time\n"
-            "	5: Peaks Time\n"
-            "	6: Subsystem Info\n"
-            "	7: Calls Numbers\n"
-            "	8: Standard Deviation\n"
-            "	9: Memory Allocation\n"
-            "	10: Memory Allocation (Bytes)\n"
-            "	11: Stalls\n"
-            "	-1: Profiling enabled, but not displayed\n"
+            "\t0: Profiling off\n"
+            "\t1: Self Time\n"
+            "\t2: Hierarchical Time\n"
+            "\t3: Extended Self Time\n"
+            "\t4: Extended Hierarchical Time\n"
+            "\t5: Peaks Time\n"
+            "\t6: Subsystem Info\n"
+            "\t7: Calls Numbers\n"
+            "\t8: Standard Deviation\n"
+            "\t9: Memory Allocation\n"
+            "\t10: Memory Allocation (Bytes)\n"
+            "\t11: Stalls\n"
+            "\t-1: Profiling enabled, but not displayed\n"
             "Default is 0 (off)");
 
 
     m_sys_profile_additionalsub = REGISTER_INT("profile_additionalsub", 0, 0, "Enable displaying additional sub-system profiling.\n"
             "Usage: profile_additionalsub #\n"
             "Where where # may be:\n"
-            "	0: no additional subsystem information\n"
-            "	1: display additional subsystem information\n"
+            "\t0: no additional subsystem information\n"
+            "\t1: display additional subsystem information\n"
             "Default is 0 (off)");
 
     m_sys_profile_filter = REGISTER_STRING("profile_filter", "", 0,
@@ -6125,7 +6264,11 @@ void CSystem::CreateSystemVars()
 #define AZ_RESTRICTED_SECTION_IMPLEMENTED
 #elif defined(AZ_RESTRICTED_PLATFORM)
 #define AZ_RESTRICTED_SECTION SYSTEMINIT_CPP_SECTION_11
-#include AZ_RESTRICTED_FILE(SystemInit_cpp, AZ_RESTRICTED_PLATFORM)
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/SystemInit_cpp_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/SystemInit_cpp_provo.inl"
+    #endif
 #endif
 #if defined(AZ_RESTRICTED_SECTION_IMPLEMENTED)
 #undef AZ_RESTRICTED_SECTION_IMPLEMENTED
@@ -6175,7 +6318,11 @@ void CSystem::CreateSystemVars()
 
 #if defined(AZ_RESTRICTED_PLATFORM)
 #define AZ_RESTRICTED_SECTION SYSTEMINIT_CPP_SECTION_12
-#include AZ_RESTRICTED_FILE(SystemInit_cpp, AZ_RESTRICTED_PLATFORM)
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/SystemInit_cpp_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/SystemInit_cpp_provo.inl"
+    #endif
 #endif
 
     m_sys_min_step = REGISTER_FLOAT("sys_min_step", 0.01f, 0,
@@ -6388,7 +6535,11 @@ void CSystem::CreateSystemVars()
     REGISTER_CVAR2("sys_display_threads", &g_cvars.sys_display_threads, 0, 0, "Displays Thread info");
 #elif defined(AZ_RESTRICTED_PLATFORM)
 #define AZ_RESTRICTED_SECTION SYSTEMINIT_CPP_SECTION_13
-#include AZ_RESTRICTED_FILE(SystemInit_cpp, AZ_RESTRICTED_PLATFORM)
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/SystemInit_cpp_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/SystemInit_cpp_provo.inl"
+    #endif
 #endif
 
 #if defined(WIN32)

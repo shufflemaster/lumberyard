@@ -100,7 +100,7 @@ namespace AzToolsFramework
             //! Actual name of the asset or folder
             const AZStd::string& GetName() const;
             //! Display name represents how entry is shown in asset browser
-            const AZStd::string& GetDisplayName() const;
+            const QString& GetDisplayName() const;
             //! Return path relative to scan folder
             const AZStd::string& GetRelativePath() const;
             //! Return absolute path. If called on product, return source absolute path
@@ -120,6 +120,7 @@ namespace AzToolsFramework
 
             //! Get child by index
             const AssetBrowserEntry* GetChild(int index) const;
+            AssetBrowserEntry* GetChild(int index);
             //! Get number of children
             int GetChildCount() const;
             //! Get immediate parent
@@ -131,7 +132,7 @@ namespace AzToolsFramework
 
         protected:
             AZStd::string m_name;
-            AZStd::string m_displayName;
+            QString m_displayName;
             AZStd::string m_relativePath;
             AZStd::string m_fullPath;
             AZStd::vector<AssetBrowserEntry*> m_children;

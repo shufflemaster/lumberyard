@@ -247,7 +247,7 @@ CPlayerProfileManager::CPlayerProfileManager(CPlayerProfileManager::IPlatformImp
     m_sharedSaveGameFolder = SHARED_SAVEGAME_FOLDER; // by default, use a shared savegame folder (Games For Windows Requirement)
     m_sharedSaveGameFolder.TrimRight("/\\");
 
-    m_curUserIndex = IPlatformOS::Unknown_User;
+    m_curUserIndex = 0;
     memset(m_onlineOnlyData, 0, sizeof(m_onlineOnlyData));
     m_onlineDataCount = 0;
     m_onlineDataByteCount = 0;
@@ -436,7 +436,11 @@ bool CPlayerProfileManager::LogoutUser(const char* userId)
     }
 
 #if defined(AZ_RESTRICTED_PLATFORM)
-#include AZ_RESTRICTED_FILE(PlayerProfileManager_cpp, AZ_RESTRICTED_PLATFORM)
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/PlayerProfileManager_cpp_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/PlayerProfileManager_cpp_provo.inl"
+    #endif
 #endif
 #if defined(AZ_RESTRICTED_SECTION_IMPLEMENTED)
 #undef AZ_RESTRICTED_SECTION_IMPLEMENTED
@@ -457,7 +461,7 @@ bool CPlayerProfileManager::LogoutUser(const char* userId)
 
     if (m_curUserIndex == std::distance(m_userVec.begin(), iter))
     {
-        m_curUserIndex = IPlatformOS::Unknown_User;
+        m_curUserIndex = 0;
         m_curUserID.clear();
     }
 
@@ -473,6 +477,12 @@ bool CPlayerProfileManager::LogoutUser(const char* userId)
     delete pEntry;
 
     return true;
+}
+
+//------------------------------------------------------------------------
+bool CPlayerProfileManager::IsUserSignedIn(const char* userId, unsigned int& outUserIndex)
+{
+    return m_pImpl->IsUserSignedIn(userId, outUserIndex);
 }
 
 //------------------------------------------------------------------------

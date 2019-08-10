@@ -361,7 +361,10 @@ class TaskBase(evil):
 		# Format msg to be better read-able
 		output = ''
 		for i in msg:
-			output += i + ' '
+			if not isinstance(i, str):
+				output += str(i) + ' '
+			else:
+				output += i + ' '
 		msg = output[:len(output)-1]
 		name = self.__class__.__name__.replace('_task', '') + ' (' + self.env['PLATFORM'] + '|' + self.env['CONFIGURATION'] + ')'
 		if getattr(self, "err_msg", None):
@@ -807,7 +810,7 @@ class Task(TaskBase):
 		# recompute the signature and return it
 		old_sig_debug_log = self.sig_implicit_debug_log
 
-		bld.task_sigs[(key, 'imp')] = sig = self.compute_sig_implicit_deps()
+		bld.task_sigs[(key, 'imp')] = sig = self.compute_sig_implicit_deps(False)
 
 		# Make the equality check since it's possible we didn't have a prior imp key but had prior nodes
 		# and said nodes didn't change

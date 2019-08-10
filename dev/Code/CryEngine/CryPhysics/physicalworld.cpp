@@ -127,9 +127,34 @@ CPhysicalWorld* g_pPhysWorlds[64];
 int g_nPhysWorlds;
 
 #if MAX_PHYS_THREADS <= 1
+
 threadID g_physThreadId = THREADID_NULL;
+
+int IsPhysThread()
+{
+    return iszero((int)(CryGetCurrentThreadId() - g_physThreadId));
+}
+void MarkAsPhysThread()
+{
+    g_physThreadId = CryGetCurrentThreadId();
+}
+void MarkAsPhysWorkerThread(int*)
+{
+}
+int get_iCaller()
+{
+    return IsPhysThread() ^ 1;
+}
+int get_iCaller_int()
+{
+    return 0;
+}
+
 #else
+
 TLS_DEFINE(int*, g_pidxPhysThread);
+
+
 
 // The physics thread is indicated by a pointer to the value 0
 // * The address of the value 0 is significant (see IsPhysThread)
@@ -174,6 +199,105 @@ void MarkAsPhysWorkerThread(int* pidx)
 {
     TLS_SET(g_pidxPhysThread, pidx);
 }
+
+int IsPhysThread()
+{
+    int dummy = 0;
+    INT_PTR ptr = (INT_PTR)TLS_GET(INT_PTR, g_pidxPhysThread);
+
+    // This is branchless logic to determine if this is a physics thread or not.
+    // Equivalent to: return (ptr ? *ptr : 0);
+    ptr += (INT_PTR)&dummy - ptr & (ptr - 1 >> sizeof(INT_PTR) * 8 - 1 ^ ptr >> sizeof(INT_PTR) * 8 - 1);
+    return *(int*)ptr;
+
+    // Explanation of the above:
+    //
+    // We'll begin with brackets:
+    //      ptr += (((INT_PTR)&dummy) - ptr) & (((ptr - 1) >> ((sizeof(INT_PTR) * 8) - 1)) ^ (ptr >> ((sizeof(INT_PTR) * 8) - 1)));
+    //
+    // Let:
+    //      a = (((INT_PTR)&dummy) - ptr)
+    //      b = ((ptr - 1) >> ((sizeof(INT_PTR) * 8) - 1))
+    //      c = (ptr >> ((sizeof(INT_PTR) * 8) - 1))
+    // Then:
+    //      ptr += a & (b ^ c)
+    //
+    // What values can ptr hold?
+    //      A. ptr is nullptr if g_pidxPhysThread is not initialized for this thread (i.e. not a physics thread or worker)
+    //      B. ptr is the address of a stack local -- if the thread is a worker (see MarkAsPhysWorkerThread)
+    //      C. ptr is the address of a static (&g_ibufPhysThread[0 or 1]) -- if the thread was ever marked as the physics thread
+    //
+    // A) When ptr is nullptr (64-bit):
+    //      a = (&dummy - 0) = &dummy
+    //      b = (-1 >> 63) = Implementation specific behavior! MSVC propagates the MSB
+    //                     = 0xFFFFFFFFFFFFFFFF
+    //      c = (0 >> 63)  = 0
+    //
+    // Thus:
+    //      ptr += &dummy & (0xFFFFFFFFFFFFFFFF ^ 0)
+    //      ptr += &dummy
+    //
+    // Or more fully:
+    //      ptr = ptr + &dummy
+    //
+    // Since ptr == nullptr:
+    //      ptr = &dummy
+    //
+    // And dummy == 0, so:
+    //      return 0
+    //
+    //
+    // B) When ptr is address of a stack local:
+    //      a = (&dummy - &local)
+    //      b = ((&local - 1) >> 63) = k (MSB of local)
+    //      c = (&local >> 63) = k (Also the MSB of local)
+    //
+    // Thus:
+    //      ptr += (&dummy - &local) & (k ^ k)
+    //
+    // Since (k ^ k) == 0:
+    //      ptr += 0
+    //
+    // *ptr is the worker index:
+    //      return true (unless its the first worker and MAIN_THREAD_NONWORKER is defined)
+    //
+    //
+    // C) When ptr is address of a static:
+    //      a = (&dummy - &static)
+    //      b = ((&static - 1) >> 63) = k (MSB of local)
+    //      c = (&static >> 63) = k (Also the MSB of local)
+    //
+    // Thus:
+    //      ptr += (&dummy - &static) & (k ^ k)
+    //
+    // Since (k ^ k) == 0:
+    //      ptr += 0
+    //
+    // *ptr is the content of g_ibufPhysThread (see MarkAsPhysThread):
+    //      If the phys thread hasn't been switched then this is 0
+    //      If the phys thread was switched then this is MAX_PHYS_THREADS
+    //      Note: Yes, this does mean that if you call MarkAsPhysThread and then immediately
+    //      call IsPhysThread it will return 0 (which doesn't seem right...)
+    //      (Unless the phys thread was switched twice in a row ... then it would alternate values in
+    //      g_ibufPhysThread buffer and potentially multiple threads would think they're the phys thread
+    //      ... is that intended?)
+    //
+    //
+    // So basically the whole thing is equivalent to:
+    //      INT_PTR ptr = (INT_PTR)TLS_GET(INT_PTR, g_pidxPhysThread);
+    //      return (ptr ? *ptr : 0);
+    //
+}
+
+int get_iCaller()
+{
+    int dummy = MAX_PHYS_THREADS;
+    INT_PTR ptr = (INT_PTR)TLS_GET(INT_PTR, g_pidxPhysThread);
+    ptr += (INT_PTR)&dummy - ptr & (ptr - 1 >> sizeof(INT_PTR) * 8 - 1 ^ ptr >> sizeof(INT_PTR) * 8 - 1);
+    return *(int*)ptr;
+}
+
+
 #endif
 
 
@@ -3196,7 +3320,11 @@ void CPhysicalWorld::ThreadProc(int ithread, SPhysTask* pTask)
     }
 #if defined(AZ_RESTRICTED_PLATFORM)
 #define AZ_RESTRICTED_SECTION PHYSICALWORLD_CPP_SECTION_1
-#include AZ_RESTRICTED_FILE(physicalworld_cpp, AZ_RESTRICTED_PLATFORM)
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/physicalworld_cpp_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/physicalworld_cpp_provo.inl"
+    #endif
 #endif
     while (true)
     {
@@ -3268,7 +3396,11 @@ void CPhysicalWorld::TimeStep(float time_interval, int flags)
         {
 #if defined(AZ_RESTRICTED_PLATFORM)
 #define AZ_RESTRICTED_SECTION PHYSICALWORLD_CPP_SECTION_2
-#include AZ_RESTRICTED_FILE(physicalworld_cpp, AZ_RESTRICTED_PLATFORM)
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/physicalworld_cpp_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/physicalworld_cpp_provo.inl"
+    #endif
 #endif
             GetISystem()->GetIThreadTaskManager()->RegisterTask(m_threads[i] = new SPhysTask(this, i + FIRST_WORKER_THREAD), ttp);
         }
@@ -3954,7 +4086,7 @@ void CPhysicalWorld::FlushOldThunks()
     for (; pthunks; pthunks = pthunksNext)
     {
         pthunksNext = *(pe_gridthunk**)pthunks;
-        delete[] pthunks;
+        FreeThunks(pthunks);
     }
     m_oldThunks = 0;
 
@@ -7228,3 +7360,7 @@ int CPhysicalWorld::GetMaxThreads()
 {
     return MAX_PHYS_THREADS;
 }
+
+#if MAX_PHYS_THREADS <= 1
+TLS_DECLARE(int*, g_pidxPhysThread)
+#endif

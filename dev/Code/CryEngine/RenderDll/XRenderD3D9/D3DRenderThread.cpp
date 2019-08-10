@@ -85,10 +85,28 @@ void CD3D9Renderer::RT_DrawDynVB(SVF_P3F_C4B_T2F* pBuf, uint16* pInds, uint32 nV
         if (pInds)
         {
             TempDynIB16::CreateFillAndBind(pInds, nInds);
+            FX_DrawIndexedPrimitive(GetInternalPrimitiveType(nPrimType), 0, 0, nVerts, 0, nInds);
         }
+        else
+        {
+            FX_DrawPrimitive(GetInternalPrimitiveType(nPrimType), 0, nVerts);
+        }
+    }
+}
 
+void CD3D9Renderer::RT_DrawDynVBUI(SVF_P2F_C4B_T2F_F4B* pBuf, uint16* pInds, uint32 nVerts, uint32 nInds, const PublicRenderPrimitiveType nPrimType)
+{
+    FX_SetUIMode();
+
+    if (!FAILED(FX_SetVertexDeclaration(0, eVF_P2F_C4B_T2F_F4B)))
+    {
+        // Create the temp buffer after we try to set the vertex declaration otherwise
+        // if that fails we won't call FX_DrawPrimitive that on a platform level
+        // cleans up some of the memory stuff that the TempDynVB creates
+        TempDynVB<SVF_P2F_C4B_T2F_F4B>::CreateFillAndBind(pBuf, nVerts, 0);
         if (pInds)
         {
+            TempDynIB16::CreateFillAndBind(pInds, nInds);
             FX_DrawIndexedPrimitive(GetInternalPrimitiveType(nPrimType), 0, 0, nVerts, 0, nInds);
         }
         else
@@ -111,6 +129,11 @@ void CD3D9Renderer::RT_Draw2dImageInternal(C2dImage* images, uint32 numImages, b
         maxParallax = GetS3DRend().GetMaxSeparationScene();
         screenDist = GetS3DRend().GetZeroParallaxPlaneDist();
     }
+
+    // Flush the current viewports.
+    // The GetViewport call below uses either m_MainRTViewport or m_NewViewport, then the image scaling code 
+    // (ScaleCoordX/ScaleCoordY) uses m_CurViewport, so this could lead to different viewport settings being used unless we flush.
+    FX_SetViewport();
 
     // Set orthographic projection
     Matrix44A origMatProj = m_RP.m_TI[m_RP.m_nProcessThreadID].m_matProj;
@@ -257,7 +280,11 @@ void CD3D9Renderer::RT_Draw2dImageInternal(C2dImage* images, uint32 numImages, b
             FX_SetFPMode();
 
 #if defined(AZ_RESTRICTED_PLATFORM)
-#include AZ_RESTRICTED_FILE(D3DRenderThread_cpp, AZ_RESTRICTED_PLATFORM)
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/D3DRenderThread_cpp_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/D3DRenderThread_cpp_provo.inl"
+    #endif
 #endif
         }
 
@@ -615,6 +642,74 @@ void CD3D9Renderer::RT_PostLevelLoading()
     // previous in the mask, including a previously loaded level, will be used and
     // incorrect shadows will be drawn.
     FX_ClearShadowMaskTexture();
+}
+
+void CD3D9Renderer::StartLoadtimePlayback(ILoadtimeCallback* pCallback)
+{
+    // make sure we can't access loading mode twice!
+    if (m_pRT->m_pLoadtimeCallback)
+    {
+        return;
+    }
+    AZ_PROFILE_FUNCTION(AZ::Debug::ProfileCategory::Renderer);
+
+    if (pCallback)
+    {
+        FlushRTCommands(true, true, true);
+
+        m_pRT->m_pLoadtimeCallback = pCallback;
+        SetViewport(0, 0, GetOverlayWidth(), GetOverlayHeight());
+        m_pRT->RC_StartVideoThread();
+
+        if (m_pRT->IsMultithreaded())
+        {
+            // wait until render thread has fully processed the start of the video
+            // to reduce the congestion on the IO reading (make sure nothing else
+            // beats the video to actually start reading something from the DVD)
+            while (m_pRT->m_eVideoThreadMode != SRenderThread::eVTM_Active)
+            {
+                m_pRT->FlushAndWait();
+                AZStd::this_thread::yield();
+            }
+        }
+    }
+}
+
+void CD3D9Renderer::StopLoadtimePlayback()
+{
+    if (m_pRT->m_pLoadtimeCallback)
+    {
+        LOADING_TIME_PROFILE_SECTION;
+
+        FlushRTCommands(true, true, true);
+
+        m_pRT->RC_StopVideoThread();
+
+        if (m_pRT->IsMultithreaded())
+        {
+            // wait until render thread has fully processed the shutdown of the loading thread
+            while (m_pRT->m_eVideoThreadMode != SRenderThread::eVTM_Disabled)
+            {
+                m_pRT->FlushAndWait();
+                AZStd::this_thread::yield();
+            }
+        }
+
+        m_pRT->m_pLoadtimeCallback = nullptr;
+
+        m_pRT->RC_BeginFrame();
+
+#if !defined(STRIP_RENDER_THREAD)
+        // Blit the accumulated commands from the renderloading thread into the current fill command queue
+        // : Currently hacked into the RC_UpdateMaterialConstants command
+        if (m_pRT->m_CommandsLoading.size())
+        {
+            void* buf = m_pRT->m_Commands[m_pRT->m_nCurThreadFill].Grow(m_pRT->m_CommandsLoading.size());
+            memcpy(buf, &m_pRT->m_CommandsLoading[0], m_pRT->m_CommandsLoading.size());
+            m_pRT->m_CommandsLoading.Free();
+        }
+#endif // !defined(STRIP_RENDER_THREAD)
+    }
 }
 
 //////////////////////////////////////////////////////////////////////////

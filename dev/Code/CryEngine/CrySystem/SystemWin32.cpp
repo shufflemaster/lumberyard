@@ -28,7 +28,6 @@
 #include <CryLibrary.h>
 #include <IGame.h>
 #include <IGameFramework.h>
-#include <IPlatformOS.h>
 #include <StringUtils.h>
 #include <AzCore/Debug/StackTracer.h>
 #include <AzCore/IO/SystemFile.h> // for AZ_MAX_PATH_LEN
@@ -396,7 +395,7 @@ void CSystem::CollectMemStats (ICrySizer* pSizer, MemStatsPurposeEnum nPurpose, 
         }
     }
 
-	if (Audio::AudioSystemRequestBus::HasHandlers())
+    if (Audio::AudioSystemRequestBus::HasHandlers())
     {
         SIZER_COMPONENT_NAME(pSizer, "CrySoundSystem");
         {
@@ -513,23 +512,15 @@ void CSystem::CollectMemStats (ICrySizer* pSizer, MemStatsPurposeEnum nPurpose, 
 //////////////////////////////////////////////////////////////////////////
 const char* CSystem::GetUserName()
 {
-#if defined(WIN32)
+#if defined(WIN32) || defined(WIN64)
     static const int iNameBufferSize = 1024;
     static char szNameBuffer[iNameBufferSize];
     memset(szNameBuffer, 0, iNameBufferSize);
 
     DWORD dwSize = iNameBufferSize;
-#if defined(WIN32) || defined(WIN64)
     wchar_t nameW[iNameBufferSize];
     ::GetUserNameW(nameW, &dwSize);
     cry_strcpy(szNameBuffer, CryStringUtils::WStrToUTF8(nameW));
-#else
-    IPlatformOS::TUserName userName;
-    if (GetPlatformOS()->UserGetName(GetPlatformOS()->GetFirstSignedInUser(), userName))
-    {
-        cry_strcpy(szNameBuffer, iNameBufferSize, userName.c_str());
-    }
-#endif
     return szNameBuffer;
 #else
 #if defined(LINUX)
@@ -1225,7 +1216,11 @@ void CSystem::FatalError(const char* format, ...)
     IDebugCallStack::instance()->FatalError(szBuffer);
 #elif defined(AZ_RESTRICTED_PLATFORM)
 #define AZ_RESTRICTED_SECTION SYSTEMWIN32_CPP_SECTION_1
-#include AZ_RESTRICTED_FILE(SystemWin32_cpp, AZ_RESTRICTED_PLATFORM)
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/SystemWin32_cpp_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/SystemWin32_cpp_provo.inl"
+    #endif
 #endif
 
     CryDebugBreak();
@@ -1247,7 +1242,11 @@ void CSystem::FatalError(const char* format, ...)
 
 #if defined(AZ_RESTRICTED_PLATFORM)
 #define AZ_RESTRICTED_SECTION SYSTEMWIN32_CPP_SECTION_2
-#include AZ_RESTRICTED_FILE(SystemWin32_cpp, AZ_RESTRICTED_PLATFORM)
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/SystemWin32_cpp_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/SystemWin32_cpp_provo.inl"
+    #endif
 #endif
 #if defined(AZ_RESTRICTED_SECTION_IMPLEMENTED)
 #undef AZ_RESTRICTED_SECTION_IMPLEMENTED
@@ -1291,7 +1290,11 @@ void CSystem::debug_GetCallStack(const char** pFunctions, int& nCount)
 #define AZ_RESTRICTED_SECTION_IMPLEMENTED
 #elif defined(AZ_RESTRICTED_PLATFORM)
 #define AZ_RESTRICTED_SECTION SYSTEMWIN32_CPP_SECTION_3
-#include AZ_RESTRICTED_FILE(SystemWin32_cpp, AZ_RESTRICTED_PLATFORM)
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/SystemWin32_cpp_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/SystemWin32_cpp_provo.inl"
+    #endif
 #endif
 #if defined(AZ_RESTRICTED_SECTION_IMPLEMENTED)
 #undef AZ_RESTRICTED_SECTION_IMPLEMENTED

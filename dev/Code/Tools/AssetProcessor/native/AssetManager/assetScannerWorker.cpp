@@ -16,6 +16,7 @@
 #include <QDir>
 #include <QFileInfo>
 #include <QFileInfoList>
+#include <QDateTime>
 
 using namespace AssetProcessor;
 
@@ -102,23 +103,25 @@ void AssetScannerWorker::ScanForSourceFiles(ScanFolderInfo scanFolderInfo)
         }
 
         QString absPath = entry.absoluteFilePath();
+        const bool isDirectory = entry.isDir();
 
-        if (entry.isDir())
+        // Filtering out excluded files
+        if (m_platformConfiguration->IsFileExcluded(absPath))
         {
-            // Filtering out excluded files
-            if (m_platformConfiguration->IsFileExcluded(absPath))
-            {
-                continue;
-            }
+            continue;
+        }
 
+        if (isDirectory)
+        {
             //Entry is a directory
-            m_folderList.insert(absPath);
+            AZ::u64 modTime = entry.lastModified().toMSecsSinceEpoch();
+            m_folderList.insert(AssetFileInfo(absPath, modTime, isDirectory));
             ScanFolderInfo tempScanFolderInfo(absPath, "", "", "", false, true);
             ScanForSourceFiles(tempScanFolderInfo);
         }
         else
         {
-            // Filtering out metadata files as well, there is no need to send both the source file and the metadafiles 
+            // Filtering out metadata files as well, there is no need to send both the source file and the metadata files 
             // to the apm for analysis, just sending the source file should be enough
             bool isMetaFile = false;
             for (int idx = 0; idx < m_platformConfiguration->MetaDataFileTypesCount(); idx++)
@@ -138,7 +141,8 @@ void AssetScannerWorker::ScanForSourceFiles(ScanFolderInfo scanFolderInfo)
             }
 
             //Entry is a file
-            m_fileList.insert(absPath);
+            AZ::u64 modTime = entry.lastModified().toMSecsSinceEpoch();
+            m_fileList.insert(AssetFileInfo(absPath, modTime, isDirectory));
         }
     }
 }
@@ -146,24 +150,9 @@ void AssetScannerWorker::ScanForSourceFiles(ScanFolderInfo scanFolderInfo)
 void AssetScannerWorker::EmitFiles()
 {
     //Loop over all source asset files and send them up the chain:
-    for (const QString& fileEntry : m_fileList)
-    {
-        if (!m_doScan)
-        {
-            break;
-        }
-        Q_EMIT FileOfInterestFound(fileEntry);
-    }
+    Q_EMIT FilesFound(m_fileList);
     m_fileList.clear();
-    //Loop over all folders and send them up the chain:
-    for (const QString& folderEntry : m_folderList)
-    {
-        if (!m_doScan)
-        {
-            break;
-        }
-        Q_EMIT FolderOfInterestFound(folderEntry);
-    }
+    Q_EMIT FoldersFound(m_folderList);
     m_folderList.clear();
 }
 

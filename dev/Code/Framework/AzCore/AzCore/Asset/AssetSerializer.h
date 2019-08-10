@@ -128,28 +128,28 @@ namespace AZ {
                 return GetAssetClassId();
             }
 
-            void Reflect(SerializeContext*)
+            void Reflect(SerializeContext* serializeContext)
             {
-            }
-
-            static GenericClassGenericAsset* Instance()
-            {
-                static GenericClassGenericAsset s_instance;
-                return &s_instance;
+                if (serializeContext)
+                {
+                    serializeContext->RegisterGenericClassInfo(GetSpecializedTypeId(), this, &AZ::AnyTypeInfoConcept<ThisType>::CreateAny);
+                }
             }
 
             Factory m_factory;
             SerializeContext::ClassData m_classData;
         };
 
-        static GenericClassInfo* GetGenericInfo()
+        using ClassInfoType = GenericClassGenericAsset;
+
+        static ClassInfoType* GetGenericInfo()
         {
-            return GenericClassGenericAsset::Instance();
+            return GetCurrentSerializeContextModule().CreateGenericClassInfo<ThisType>();
         }
 
         static const Uuid& GetClassTypeId()
         {
-            return GenericClassGenericAsset::Instance()->m_classData.m_typeId;
+            return GetGenericInfo()->m_classData.m_typeId;
         }
     };
 }   // namespace AZ

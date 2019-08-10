@@ -14,6 +14,7 @@
 #include "SequenceAgentComponent.h"
 
 #include <AzCore/RTTI/BehaviorContext.h>
+#include <AzCore/std/containers/set.h>
 #include <AzCore/Serialization/SerializeContext.h>
 #include <AzCore/Serialization/EditContext.h>
 #include <AzCore/Component/ComponentApplicationBus.h>
@@ -30,8 +31,6 @@ namespace Maestro
 {
     void EditorSequenceAgentComponent::Reflect(AZ::ReflectContext* context)
     {
-        AZ::EntityComponentIdPair::Reflect(context);
-
         AZ::SerializeContext* serializeContext = azrtti_cast<AZ::SerializeContext*>(context);
 
         if (serializeContext)
@@ -157,8 +156,10 @@ namespace Maestro
         m_sequenceEntityIds.erase(sequenceEntityId);
 
         // Disconnect from the bus between the SequenceComponent and me
-        EditorSequenceAgentComponentRequestBus::MultiHandler::BusDisconnect(*busIdToDisconnect);
-        SequenceAgentComponentRequestBus::MultiHandler::BusDisconnect(*busIdToDisconnect);
+        // Make a copy because calling BusDisconnect destroy the current bus id
+        const Maestro::SequenceAgentEventBusId busIdToDisconnectCopy = *busIdToDisconnect;
+        EditorSequenceAgentComponentRequestBus::MultiHandler::BusDisconnect(busIdToDisconnectCopy);
+        SequenceAgentComponentRequestBus::MultiHandler::BusDisconnect(busIdToDisconnectCopy);
 
         if (m_sequenceEntityIds.size())
         {

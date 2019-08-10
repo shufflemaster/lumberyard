@@ -177,11 +177,11 @@ namespace AzToolsFramework
         {
             if (m_sliceRestoreInfo)
             {
-                EBUS_EVENT(AzToolsFramework::EditorEntityContextRequestBus, RestoreSliceEntity, entity, m_sliceRestoreInfo);
+                EBUS_EVENT(AzToolsFramework::EditorEntityContextRequestBus, RestoreSliceEntity, entity, m_sliceRestoreInfo, SliceEntityRestoreType::Deleted);
             }
             else
             {
-                if (!m_entityContextId.IsNull())
+                if (!m_entityContextId.IsNull() && !isSliceMetadataEntity)
                 {
                     EBUS_EVENT_ID(m_entityContextId, AzFramework::EntityContextRequestBus, AddEntity, entity);
                 }
@@ -206,7 +206,10 @@ namespace AzToolsFramework
 
             if (m_isSelected)
             {
-                selectedEntities.push_back(m_entityID);
+                if (AZStd::find(selectedEntities.begin(), selectedEntities.end(), m_entityID) == selectedEntities.end())
+                {
+                    selectedEntities.push_back(m_entityID);
+                }
             }
 
             EntityStateCommandNotificationBus::Event(m_entityID, &EntityStateCommandNotificationBus::Events::PostRestore, entity);

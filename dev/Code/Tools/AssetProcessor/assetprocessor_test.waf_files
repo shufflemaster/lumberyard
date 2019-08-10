@@ -17,7 +17,7 @@
             "native/tests/AssetProcessorTest.h",
             "native/tests/AssetProcessorTest.cpp",
             "native/tests/BaseAssetProcessorTest.h",
-            "native/tests/AssetDatabase/AssetDatabaseTest.cpp",
+            "native/tests/assetdatabase/AssetDatabaseTest.cpp",
             "native/tests/resourcecompiler/RCBuilderTest.cpp",
             "native/tests/resourcecompiler/RCBuilderTest.h",
             "native/tests/resourcecompiler/RCControllerTest.cpp",
@@ -33,7 +33,11 @@
             "native/tests/platformconfiguration/platformconfigurationtests.h",
             "native/tests/utilities/JobModelTest.cpp",
             "native/tests/utilities/JobModelTest.h",
-            "native/tests/AssetCatalog/AssetCatalogUnitTests.cpp"
+            "native/tests/AssetCatalog/AssetCatalogUnitTests.cpp",
+            "native/tests/assetscanner/AssetScannerTests.h",
+            "native/tests/assetscanner/AssetScannerTests.cpp",
+            "native/tests/FileProcessor/FileProcessorTests.h",
+            "native/tests/FileProcessor/FileProcessorTests.cpp"
         ],
         "unittests":
         [

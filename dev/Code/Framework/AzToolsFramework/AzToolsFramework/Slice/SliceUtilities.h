@@ -22,7 +22,7 @@
 #include <QWidget>
 #include <QLabel>
 #include <QDialog>
-
+#include <QWidgetAction>
 #pragma once
 
 class QMenu;
@@ -33,7 +33,7 @@ namespace AzToolsFramework
 
     namespace SliceUtilities
     {
-        using EntityAncestorPair = AZStd::pair<AZ::EntityId, AZ::Entity*>;
+        using EntityAncestorPair = AZStd::pair<AZ::EntityId, AZStd::shared_ptr<AZ::Entity>>;
         using IdToEntityMapping = AZStd::unordered_map<AZ::EntityId, AZ::Entity*>;
         using IdToInstanceAddressMapping = AZStd::unordered_map<AZ::EntityId, AZ::SliceComponent::SliceInstanceAddress>;
 
@@ -52,11 +52,13 @@ namespace AzToolsFramework
          * \param entities - the set of entities to include in the new slice.
          * \param targetDirectory - the preferred directory path.
          * \param inheritSlices - if true, entities already part of slice instances will be added by cascading from their corresponding slices.
+         * \param setAsDynamic - if true, the slice is setup as a dynamic slice on creation
          * \return true if slice was created successfully.
          */
         bool MakeNewSlice(const AzToolsFramework::EntityIdSet& entities, 
                           const char* targetDirectory, 
-                          bool inheritSlices, 
+                          bool inheritSlices,
+                          bool setAsDynamic,
                           AZ::SerializeContext* serializeContext = nullptr);
 
         /**
@@ -229,17 +231,17 @@ namespace AzToolsFramework
         /**
         * Get pushable new child entity Ids
         * \param entityIdList input entities
-        * \param unpushableNewChildEntityIds [out] unpushable new child entity Ids from the input entities
+        * \param unpushableEntityIdsPerAsset [out] unpushable new child entity Ids for each potential ancestor
         * \param sliceAncestryMapping [out] mappings from the entity id to the slice ancestry to push to
-        * \param newChildEntityIdAncestorPairs [out] Pairs of new child entity Id and the entity ancestor list 
-        * \param hasUnpushableSliceEntityAdditions [out] whether the input entities contain unpushable additions
+        * \param newChildEntityIdAncestorPairs [out] Pairs of new child entity Id and the entity ancestor list
+        * \param newEntityIds [out] Set of all added newly entityIds, whether pushable or not
         */
         AZStd::unordered_set<AZ::EntityId> GetPushableNewChildEntityIds(
             const AzToolsFramework::EntityIdList& entityIdList,
-            EntityIdSet& unpushableNewChildEntityIds,
+            AZStd::unordered_map<AZ::Data::AssetId, EntityIdSet>& unpushableEntityIdsPerAsset,
             AZStd::unordered_map<AZ::EntityId, AZ::SliceComponent::EntityAncestorList>& sliceAncestryMapping,
             AZStd::vector<AZStd::pair<AZ::EntityId, AZ::SliceComponent::EntityAncestorList>>& newChildEntityIdAncestorPairs,
-            bool& hasUnpushableSliceEntityAdditions);
+            EntityIdSet& newEntityIds);
 
         /**
         * Get unique removed entities
@@ -266,7 +268,19 @@ namespace AzToolsFramework
         * \param sliceSelectedCallback Callback for when a slice is selected, run before the asset selection. This allows this functionality to bridge module
         *                              boundaries. SliceUtilities is in AzToolsFramework, but the AssetBrowser largely exists in Sandbox.
         */
-        void PopulateSliceSubMenus(QMenu& outerMenu, const AzToolsFramework::EntityIdList& inputEntities, SliceSelectedCallback sliceSelectedCallback);
+        void PopulateSliceSubMenus(QMenu& outerMenu, const AzToolsFramework::EntityIdList& inputEntities, SliceSelectedCallback sliceSelectedCallback, SliceSelectedCallback sliceRelationshipViewCallback);
+
+        /**
+        * Creates and popluates a menu item associted with the passed in entity.
+        * \param selectedEntity The Entity to use to populate the go to slice menu with.
+        * \param ancestor slice root ancestor to associate with this item
+        * \param menu pointer to menu to add this menu item to.
+        * \param indentation amount of whitespace to place in front of this item.
+        * \param icon image to display for this menu item.
+        * \param tooltip text to display when hovering over item
+        * \param sliceAssetId [out] sliceAssetId of the passed in ancestor.
+        */
+        QWidgetAction* MakeSliceMenuItem(const AZ::EntityId& selectedEntity, const AZ::SliceComponent::Ancestor& ancestor, QMenu* menu, int indentation, const QPixmap icon, QString tooltip, AZ::Data::AssetId& sliceAssetId);
 
         /**
          * Populates a QMenu with a sub-menu to select slices associated to the passed in entity list in the asset browser.
@@ -278,12 +292,22 @@ namespace AzToolsFramework
         void PopulateFindSliceMenu(QMenu& outerMenu, const AZ::EntityId& selectedEntity, const AZ::SliceComponent::EntityAncestorList& ancestors, SliceSelectedCallback sliceSelectedCallback);
 
         /**
+        * Populates a QMenu with a sub-menu to select slices associated to the passed in entity list in the slice relationship view.
+        * \param outerMenu The menu used as the parent for the go to slice menu.
+        * \param selectedEntity The Entity to use to populate the go to slice menu with.
+        * \param sliceSelectedCallback Callback for when a slice is selected, run before the asset selection. This allows this functionality to bridge module
+        *                              boundaries. SliceUtilities is in AzToolsFramework, but the AssetBrowser largely exists in Sandbox.
+        */
+        void PopulateSliceRelationshipViewMenu(QMenu& outerMenu, const AZ::EntityId& selectedEntity, const AZ::SliceComponent::EntityAncestorList& ancestors, SliceSelectedCallback sliceSelectedCallback);
+
+        /**
         * Populates a QMenu with a sub-menu to reassign a slices root ancestor to a new base, this operation directly affects the slice asset file
         * \param outerMenu The menu used as the parent for the go to slice menu.
         * \param selectedEntities The entities selected and used to populate the menu
+        * \param selectedTransformHierarchyEntities The selected entities and all of their children
         * \param headerText Optional header text
         */
-        void PopulateDetachMenu(QMenu& outerMenu, const AzToolsFramework::EntityIdList& selectedEntities, const AZStd::string& headerText = "Detach");
+        void PopulateDetachMenu(QMenu& outerMenu, const AzToolsFramework::EntityIdList& selectedEntities, const AzToolsFramework::EntityIdSet& selectedTransformHierarchyEntities, const AZStd::string& headerText = "Detach");
 
         /**
         * Populates a (provided) QMenu with a list of slices that are antecedents of the current entity, allowing the user to select them.
@@ -485,27 +509,49 @@ namespace AzToolsFramework
         /**
         * Calculates the number of changes in a list of slices to be used in push/revert menu options
         * \param inputEntities List of entities to produce information for
-        * \param entitiesToRemove [out] List of entities tat have been removed
+        * \param entitiesToRemove [out] List of entities that have been removed
         * \param numRelevantEntitiesInSlices [out] Number of entities that have changes
-        * \pararm pushableChangesPerAsset [out] List of the number of changes for each entitiy in list
+        * \param pushableChangesPerAsset [out] List of the number of changes for each entitiy in list
         * \param sliceDisplayOrder [out] List of changes slices in display order
         * \param assetEntityAncestorMap [out] List of ancestors of affected entities
+        * \param unpushableEntityIds [out] Set of unpushable entity Ids
         * \return True if there are changes
         */
         bool CountPushableChangesToSlice(const AzToolsFramework::EntityIdList& inputEntities,
             const InstanceDataNode::Address* fieldAddress,
-            AZStd::unordered_set<AZ::EntityId>& entitiesToAdd,
+            AZStd::unordered_map<AZ::Data::AssetId, EntityIdSet>& entitiesToAddPerAsset,
             AZStd::unordered_set<AZ::EntityId>& entitiesToRemove,
             size_t& numRelevantEntitiesInSlices,
-            AZStd::unordered_map<AZ::Data::AssetId, int>& pushableChangesPerAsset,
+            AZStd::unordered_map<AZ::Data::AssetId, int>& numPushableChangesPerAsset,
             AZStd::vector<AZ::Data::AssetId>& sliceDisplayOrder,
             AZStd::unordered_map<AZ::Data::AssetId, AZStd::vector<EntityAncestorPair>>& assetEntityAncestorMap,
-            bool& hasUnpushableSliceEntityAdditions);
+            AZStd::unordered_map < AZ::Data::AssetId, AZStd::unordered_set<AZ::EntityId>>& pushableEntityIdsPerAsset,
+            AZStd::unordered_map<AZ::Data::AssetId, EntityIdSet>&unpushableEntityIdsPerAsset);
+
+        /**
+        * Returns the file extension (including .) used for slices.
+        */
+        AZStd::string GetSliceFileExtension();
+
+        /**
+        * Creates the right click context menu for slices in the asset browser.
+        * \param menu The menu to parent this to.
+        * \param fullFilePath The full file path of the slice.
+        */
+        void CreateSliceAssetContextMenu(QMenu* menu, const AZStd::string& fullFilePath);
+
+        /**
+        * Retrieves the desired save format for slices.
+        * \return The slice save format.
+        */
+        AZ::DataStream::StreamType GetSliceStreamFormat();
 
         static const char* splitterColor = "black";
         static const char* detachMenuItemHoverColor = "#4285F4";
         static const char* detachMenuItemDefaultColor = "#ffffff";
         static const char* detailWidgetBackgroundColor = "#303030";
+        static const char* unsavableChangesTextColor = "#ff3f3f";
+        static const char* conflictedChangesTextColor = "red";
 
     } // namespace SliceUtilities
 

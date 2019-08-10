@@ -216,6 +216,7 @@ struct SShaderParam
     UParamVal m_Value;
     EParamType m_Type;
     uint8 m_eSemantic;
+    uint8 m_Pad[3] = { 0 };
 
     inline void Construct()
     {
@@ -293,7 +294,7 @@ struct SShaderParam
             {
                 continue;
             }
-            if (sp->m_Name == name)
+            if (azstricmp(sp->m_Name.c_str(), name) == 0)
             {
                 if (sp->m_Type == eType_STRING)
                 {
@@ -500,6 +501,11 @@ class CTexture;
 #define MDV_DET_BENDING_GRASS  0x400
 #define MDV_WIND               0x800
 #define MDV_DEPTH_OFFSET       0x2000
+
+// Does the vertex shader require position-invariant compilation?
+// This would be true of shaders rendering multiple times with different vertex shaders - for example during zprepass and the gbuffer pass
+// Note this is different than the technique flag FHF_POSITION_INVARIANT as that does custom behavior for terrain
+#define MDV_POSITION_INVARIANT 0x4000
 
 // Summary:
 //   Deformations/Morphing types.
@@ -772,24 +778,16 @@ struct SRenderObjData
 {
     uintptr_t m_uniqueObjectId;
 
-    IRenderElement* m_pRE;
     SSkinningData* m_pSkinningData;
-    TArray<Vec4>    m_Constants;
 
     float   m_fTempVars[10];                                    // Different useful vars (ObjVal component in shaders)
 
     // using a pointer, the client code has to ensure that the data stays valid
     const DynArray<SShaderParam>* m_pShaderParams;
 
-    uint16 m_nLightID;
-
     uint32  m_nHUDSilhouetteParams;
 
-    uint32  m_pLayerEffectParams; // only used for layer effects
-
     uint64 m_nSubObjHideMask;
-
-    uint64 m_ShadowCasters;          // Mask of shadow casters.
 
     union
     {
@@ -799,16 +797,9 @@ struct SRenderObjData
 
     SBending* m_BendingPrev;
 
-    SSectorTextureSet* m_pTerrainSectorTextureInfo;
-
     uint16  m_FogVolumeContribIdx[2];
-
-    uint16  m_scissorX;
-    uint16  m_scissorY;
-
-    uint16  m_scissorWidth;
-    uint16  m_scissorHeight;
-
+    
+    uint16  m_nLightID;
     uint16  m_LightVolumeId;
 
     uint8 m_screenBounds[4];
@@ -824,20 +815,14 @@ struct SRenderObjData
     void Init()
     {
         m_nSubObjHideMask = 0;
-        m_Constants.Free();
         m_uniqueObjectId = 0;
-        m_pRE = NULL;
-        m_pLayerEffectParams = 0;
         m_nLightID = 0;
         m_LightVolumeId = 0;
         m_pSkinningData = NULL;
-        m_pTerrainSectorTextureInfo = nullptr;
-        m_scissorX = m_scissorY = m_scissorWidth = m_scissorHeight = 0;
         m_screenBounds[0] = m_screenBounds[1] = m_screenBounds[2] = m_screenBounds[3] = 0;
         m_nCustomData = 0;
         m_nCustomFlags = 0;
-        m_pLayerEffectParams = m_nHUDSilhouetteParams = 0;
-        m_ShadowCasters = 0;
+        m_nHUDSilhouetteParams = 0;
         m_pBending = nullptr;
         m_BendingPrev = nullptr;
         m_pShaderParams = nullptr;
@@ -853,14 +838,9 @@ struct SRenderObjData
         m_pShaderParams = pShaderParams;
     }
 
-    void SetRenderElement(IRenderElement* renderElement)
-    {
-        m_pRE = renderElement;
-    }
-
     void GetMemoryUsage(ICrySizer* pSizer) const
     {
-        pSizer->AddObject(m_Constants);
+        AZ_UNUSED(pSizer);
     }
 } _ALIGN(16);
 
@@ -944,6 +924,8 @@ public:
     uint8                       m_DissolveRef;            //!< Dissolve value
     uint8                       m_RState;                 //!< Render state used for object
 
+    bool                        m_NoDecalReceiver;
+
     uint32                      m_nMaterialLayers;        //!< Which mtl layers active and how much to blend them
 
     IRenderNode*                m_pRenderNode;            //!< Will define instance id.
@@ -952,16 +934,9 @@ public:
 
     PerInstanceConstantBufferKey m_PerInstanceConstantBufferKey;
 
-    // Common flags
-    uint32                     m_bWasDeleted : 1; //!< Object was deleted and in unusable state
-    uint32                     m_bHasShadowCasters : 1; //!< Has non-empty list of lights casting shadows in render object data
-    uint32                     m_NoDecalReceiver : 1;
-
     //! Embedded SRenderObjData, optional data carried by CRenderObject
     SRenderObjData             m_data;
 
-private:
-    int16               m_nObjDataId;
 public:
 
     //////////////////////////////////////////////////////////////////////////
@@ -1009,9 +984,6 @@ public:
         m_nRTMask = 0;
         m_pRenderNode = NULL;
 
-        m_pNextSubObject = NULL;
-        m_bWasDeleted = false;
-        m_bHasShadowCasters = false;
         m_NoDecalReceiver = false;
         m_data.Init();
     }
@@ -1028,8 +1000,6 @@ public:
     void SetRE(IRenderElement* re) { m_pRE = re; }
 
 protected:
-    // Next child sub object used for permanent objects
-    CRenderObject*              m_pNextSubObject;
 
     // Disallow copy (potential bugs with PERMANENT objects)
     // alwasy use IRendeer::EF_DuplicateRO if you want a copy
@@ -1038,9 +1008,7 @@ protected:
 
     void CloneObject(CRenderObject* srcObj)
     {
-        CRenderObject* prevObj = m_pNextSubObject;
         *this = *srcObj;
-        m_pNextSubObject = prevObj; // Prevent next render object pointer from copying
     }
 
     friend class CRenderer;
@@ -1363,51 +1331,28 @@ struct STexState
     bool m_bComparison;
     bool m_bSRGBLookup;
     byte m_bPAD;
+    // NOTE: There are 4 more pad bytes that exist here because m_pDeviceState is a 64-bit pointer.
+    uint32 m_PadBytes;
 
     STexState ()
     {
-        m_nMinFilter = 0;
-        m_nMagFilter = 0;
-        m_nMipFilter = 0;
-        m_nAnisotropy = 0;
-        m_nAddressU = 0;
-        m_nAddressV = 0;
-        m_nAddressW = 0;
-        m_dwBorderColor = 0;
-        m_MipBias = 0.0f;
-        padding = 0;
-        m_bSRGBLookup = false;
-        m_bActive = false;
-        m_bComparison = false;
-        m_pDeviceState = NULL;
-        m_bPAD = 0;
+        // Make sure we clear everything, including "invisible" pad bytes.
+        memset(this, 0, sizeof(*this));
     }
     STexState(int nFilter, bool bClamp)
     {
-        m_pDeviceState = NULL;
+        memset(this, 0, sizeof(*this));
         int nAddress = bClamp ? TADDR_CLAMP : TADDR_WRAP;
         SetFilterMode(nFilter);
         SetClampMode(nAddress, nAddress, nAddress);
         SetBorderColor(0);
-        m_MipBias = 0.0f;
-        m_bSRGBLookup = false;
-        m_bActive = false;
-        m_bComparison = false;
-        padding = 0;
-        m_bPAD = 0;
     }
     STexState(int nFilter, int nAddressU, int nAddressV, int nAddressW, unsigned int borderColor)
     {
-        m_pDeviceState = NULL;
+        memset(this, 0, sizeof(*this));
         SetFilterMode(nFilter);
         SetClampMode(nAddressU, nAddressV, nAddressW);
         SetBorderColor(borderColor);
-        m_MipBias = 0.0f;
-        m_bSRGBLookup = false;
-        m_bActive = false;
-        m_bComparison = false;
-        padding = 0;
-        m_bPAD = 0;
     }
 
     void Destroy();
@@ -1575,6 +1520,11 @@ struct STexSamplerRT
 
     bool        m_bGlobal;
 
+#if AZ_RENDER_TO_TEXTURE_GEM_ENABLED
+    // CRC of texture name if this is an engine texture
+    uint32_t m_nCrc;
+#endif // if AZ_RENDER_TO_TEXTURE_GEM_ENABLED
+
     STexSamplerRT()
     {
         m_nTexState = -1;
@@ -1586,6 +1536,9 @@ struct STexSamplerRT
         m_nSamplerSlot = -1;
         m_nTextureSlot = -1;
         m_bGlobal = false;
+#if AZ_RENDER_TO_TEXTURE_GEM_ENABLED       
+        m_nCrc = 0;
+#endif // if AZ_RENDER_TO_TEXTURE_GEM_ENABLED
     }
     ~STexSamplerRT()
     {
@@ -1636,6 +1589,9 @@ struct STexSamplerRT
         m_nSamplerSlot = src.m_nSamplerSlot;
         m_nTextureSlot = src.m_nTextureSlot;
         m_bGlobal = src.m_bGlobal;
+#if AZ_RENDER_TO_TEXTURE_GEM_ENABLED
+        m_nCrc = src.m_nCrc;
+#endif // if AZ_RENDER_TO_TEXTURE_GEM_ENABLED
     }
     NO_INLINE STexSamplerRT& operator = (const STexSamplerRT& src)
     {
@@ -1658,6 +1614,9 @@ struct STexSamplerRT
         m_nSamplerSlot = -1;
         m_nTextureSlot = -1;
         m_bGlobal = (src.m_nTexFlags & FT_FROMIMAGE) != 0;
+#if AZ_RENDER_TO_TEXTURE_GEM_ENABLED
+        m_nCrc = 0;
+#endif // if AZ_RENDER_TO_TEXTURE_GEM_ENABLED
     }
     inline bool operator != (const STexSamplerRT& m) const
     {
@@ -2910,6 +2869,7 @@ struct SRenderLight
         m_nAttenFalloffMax = 255;
         m_fAttenuationBulbSize = 0.1f;
         m_fProbeAttenuation = 1.0f;
+        m_lightId = -1;
     }
 
     const Vec3& GetPosition() const
@@ -3070,6 +3030,7 @@ struct SRenderLight
     int16 m_sY;
     int16 m_sWidth;
     int16 m_sHeight;
+    int m_lightId;
 
     // Env. probes
     ITexture* m_pDiffuseCubemap;                    // Very small cubemap texture to make a lookup for diffuse.

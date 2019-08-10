@@ -529,8 +529,12 @@ struct SmallTree48BitQuat
 
         float* m_Res = &q.v.x;
 #if defined(AZ_RESTRICTED_PLATFORM)
-#include AZ_RESTRICTED_FILE(QuatQuantization_h, AZ_RESTRICTED_PLATFORM)
-#elif defined(APPLE) || defined(LINUX)
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/QuatQuantization_h_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/QuatQuantization_h_provo.inl"
+    #endif
+#elif defined(APPLE) || defined(LINUX) || defined(AZ_COMPILER_CLANG)
 #define QUATQUANTIZATION_H_TRAIT_USE_FL_M128_UNION 1
 #endif
 #if QUATQUANTIZATION_H_TRAIT_USE_FL_M128_UNION

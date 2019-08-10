@@ -51,7 +51,11 @@ namespace AZStd
 
 #if defined(AZ_RESTRICTED_PLATFORM)
 #define AZ_RESTRICTED_SECTION THREAD_WIN_CPP_SECTION_1
-#include AZ_RESTRICTED_FILE(thread_win_cpp, AZ_RESTRICTED_PLATFORM)
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/thread_win_cpp_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/thread_win_cpp_provo.inl"
+    #endif
 #endif
 #if defined(AZ_RESTRICTED_SECTION_IMPLEMENTED)
 #undef AZ_RESTRICTED_SECTION_IMPLEMENTED
@@ -76,7 +80,11 @@ namespace AZStd
 
 #if defined(AZ_RESTRICTED_PLATFORM)
 #define AZ_RESTRICTED_SECTION THREAD_WIN_CPP_SECTION_2
-#include AZ_RESTRICTED_FILE(thread_win_cpp, AZ_RESTRICTED_PLATFORM)
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/thread_win_cpp_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/thread_win_cpp_provo.inl"
+    #endif
 #endif
 #if defined(AZ_RESTRICTED_SECTION_IMPLEMENTED)
 #undef AZ_RESTRICTED_SECTION_IMPLEMENTED
@@ -95,14 +103,18 @@ namespace AZStd
 
 #if defined(AZ_RESTRICTED_PLATFORM)
 #define AZ_RESTRICTED_SECTION THREAD_WIN_CPP_SECTION_3
-#include AZ_RESTRICTED_FILE(thread_win_cpp, AZ_RESTRICTED_PLATFORM)
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/thread_win_cpp_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/thread_win_cpp_provo.inl"
+    #endif
 #endif
 #if defined(AZ_RESTRICTED_SECTION_IMPLEMENTED)
 #undef AZ_RESTRICTED_SECTION_IMPLEMENTED
 #else
-            if (desc && desc->m_cpuId >= 0 && desc->m_cpuId < 32)
+            if (desc && desc->m_cpuId != -1)
             {
-                SetThreadAffinityMask(hThread, DWORD_PTR(1) << desc->m_cpuId);
+                SetThreadAffinityMask(hThread, DWORD_PTR(desc->m_cpuId));
             }
 #endif
 
@@ -190,7 +202,11 @@ namespace AZStd
     {
 #if defined(AZ_RESTRICTED_PLATFORM)
 #define AZ_RESTRICTED_SECTION THREAD_WIN_CPP_SECTION_4
-#include AZ_RESTRICTED_FILE(thread_win_cpp, AZ_RESTRICTED_PLATFORM)
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/thread_win_cpp_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/thread_win_cpp_provo.inl"
+    #endif
 #endif
 #if defined(AZ_RESTRICTED_SECTION_IMPLEMENTED)
 #undef AZ_RESTRICTED_SECTION_IMPLEMENTED

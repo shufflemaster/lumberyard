@@ -26,7 +26,11 @@
 #include "AnimationThreadTask.h"
 
 #if defined(AZ_RESTRICTED_PLATFORM)
-#include AZ_RESTRICTED_FILE(AnimationBase_cpp, AZ_RESTRICTED_PLATFORM)
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/AnimationBase_cpp_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/AnimationBase_cpp_provo.inl"
+    #endif
 #endif
 #if defined(AZ_RESTRICTED_SECTION_IMPLEMENTED)
 #undef AZ_RESTRICTED_SECTION_IMPLEMENTED
@@ -135,6 +139,18 @@ namespace LegacyCryAnimation
         }
 
         return true;
+    }
+
+    //////////////////////////////////////////////////////////////////////////
+    void ShutdownCharacterManager()
+    {
+        SAFE_DELETE(g_pCharacterManager);
+        gEnv->pCharacterManager = nullptr;
+
+        if (g_controllerHeap->IsInitialised())
+        {
+            g_controllerHeap->~CControllerDefragHeap();
+        }
     }
 }
 

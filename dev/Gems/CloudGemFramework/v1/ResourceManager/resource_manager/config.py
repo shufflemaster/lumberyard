@@ -8,7 +8,7 @@
 # remove or modify any license notices. This file is distributed on an "AS IS" BASIS,
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 #
-# $Revision: #1 $
+# $Revision: #2 $
 
 import os
 import json
@@ -720,9 +720,8 @@ class ConfigContext(object):
     def set_pending_framework_version(self, new_version):
         self.__framework_version = new_version
 
-
     def save_pending_framework_version(self):
-        self.local_project_settings.framework_version = self.__framework_version
+        self.local_project_settings.set_framework_version(self.__framework_version)
         self.local_project_settings.save()
 
 
@@ -772,9 +771,8 @@ class LocalProjectSettings():
     @property
     def framework_version(self):
         return self.__framework_version
-
-    @framework_version.setter
-    def framework_version(self, value):
+    
+    def set_framework_version(self, value):
         if not isinstance(value, Version):
             value = Version(value)
         self.__framework_version = value
@@ -1603,10 +1601,9 @@ class DeploymentTemplateAggregator(TemplateAggregator):
 
             if not resource_group.is_enabled:
                 continue
-
             cross_gem_comms_dependencies = []
             for dep in resource_group.get_inter_gem_dependencies():
-                if dep["gem"] in enabled_resource_group_names:
+                if dep["gem"] in enabled_resource_group_names or dep["gem"] == "CloudGemFramework":
                     cross_gem_comms_dependencies.append(dep)
 
             configuration_name = resource_group.name + 'Configuration'
@@ -1626,6 +1623,16 @@ class DeploymentTemplateAggregator(TemplateAggregator):
                 "Type": "AWS::CloudFormation::Stack",
                 "Properties": {
                     "TemplateURL": { "Fn::GetAtt": [configuration_name, "TemplateURL"] },
+                        "Tags": [
+                        {
+                            "Key": "Gem",
+                            "Value": resource_group.name
+                        },
+                        {
+                            "Key": "Deployment",
+                            "Value": {"Ref": "DeploymentName"}
+                        }
+                    ],
                     "Parameters": {
                         "ProjectResourceHandler": { "Ref": "ProjectResourceHandler" },
                         "ConfigurationBucket": { "Fn::GetAtt": [configuration_name, "ConfigurationBucket"] },
@@ -1644,7 +1651,8 @@ class DeploymentTemplateAggregator(TemplateAggregator):
                 inter_gem_deps_map[resource_group.name] = cross_gem_comms_dependencies
                 resolver_dependencies.add(resource_group.name)
                 for dep in cross_gem_comms_dependencies:
-                    resolver_dependencies.add(dep["gem"])
+                    if dep["gem"] != "CloudGemFramework":
+                        resolver_dependencies.add(dep["gem"])
 
         if inter_gem_deps_map:
             resources["CrossGemCommunicationInterfaceResolver"] = {

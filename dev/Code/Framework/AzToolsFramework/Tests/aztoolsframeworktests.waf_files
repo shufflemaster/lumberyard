@@ -3,8 +3,19 @@
         "Root": [
             "Main.cpp"
         ],
-        "AzToolsFramework" : [
+        "AzToolsFramework": [
+            "ComponentModeTests.cpp",
+            "EditorTransformComponentSelectionTests.cpp",
+            "LogLines.cpp",
+            "ManipulatorBoundsTests.cpp",
+            "Slice.cpp",
             "UndoStack.cpp"
+        ],
+        "Entity": [
+          "Entity/EditorEntityContextComponentTests.cpp"
+        ],
+        "ToolsComponents": [
+            "ToolsComponents/EditorLayerComponentTests.cpp"
         ]
     }
 }

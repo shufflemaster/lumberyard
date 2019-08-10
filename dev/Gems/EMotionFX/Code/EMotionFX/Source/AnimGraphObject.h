@@ -73,8 +73,10 @@ namespace EMotionFX
             CATEGORY_MATH                   = 5,
             CATEGORY_MISC                   = 6,
             CATEGORY_TRANSITIONS            = 10,
-            CATEGORY_TRANSITIONCONDITIONS   = 11
+            CATEGORY_TRANSITIONCONDITIONS   = 11,
+            CATEGORY_TRIGGERACTIONS         = 12
         };
+        static const char* GetCategoryName(ECategory category);
 
         enum ESyncMode : AZ::u8
         {
@@ -88,7 +90,8 @@ namespace EMotionFX
             EVENTMODE_MASTERONLY            = 0,
             EVENTMODE_SLAVEONLY             = 1,
             EVENTMODE_BOTHNODES             = 2,
-            EVENTMODE_MOSTACTIVE            = 3
+            EVENTMODE_MOSTACTIVE            = 3,
+            EVENTMODE_NONE                  = 4
         };
 
         enum EExtractionMode : AZ::u8
@@ -105,6 +108,8 @@ namespace EMotionFX
          * anim graph object gets constructed by a copy and paste operation.
          */
         virtual void Reinit() {}
+
+        virtual void RecursiveReinit() { Reinit(); }
 
         virtual bool InitAfterLoading(AnimGraph* animGraph) = 0;
 
@@ -135,33 +140,12 @@ namespace EMotionFX
         virtual void OnActorMotionExtractionNodeChanged()                                                        {}
 
         MCORE_INLINE uint32 GetObjectIndex() const                                      { return mObjectIndex; }
-        MCORE_INLINE void SetObjectIndex(uint32 index)                                  { mObjectIndex = index; }
+        MCORE_INLINE void SetObjectIndex(size_t index)                                  { mObjectIndex = static_cast<uint32>(index); }
 
-        MCORE_INLINE AnimGraph* GetAnimGraph() const                                  { return mAnimGraph; }
-        MCORE_INLINE void SetAnimGraph(AnimGraph* animGraph)                         { mAnimGraph = animGraph; }
+        MCORE_INLINE AnimGraph* GetAnimGraph() const                                    { return mAnimGraph; }
+        MCORE_INLINE void SetAnimGraph(AnimGraph* animGraph)                            { mAnimGraph = animGraph; }
 
         virtual uint32 GetAnimGraphSaveVersion() const        { return 1; }
-
-        /**
-         * Get the size in bytes of the custom data which will be saved with the object.
-         * @return The size in bytes of the custom data.
-         */
-        virtual uint32 GetCustomDataSize() const        { return 0; }
-
-        /**
-         * Write the custom data which will be saved with the object.
-         * @param[in] stream A pointer to a stream to which the custom data will be saved to.
-         * @param[in] targetEndianType The endian type in which the custom data should be saved in.
-         */
-        virtual bool WriteCustomData(MCore::Stream* stream, MCore::Endian::EEndianType targetEndianType)            { MCORE_UNUSED(stream); MCORE_UNUSED(targetEndianType); return true; }
-
-        /**
-         * Read the custom data which got saved with the object.
-         * @param[in] stream A pointer to a stream from which the custom data will be read from.
-         * @param[in] version The version of the custom data.
-         * @param[in] endianType The endian type in which the custom data should be saved in.
-         */
-        virtual bool ReadCustomData(MCore::Stream* stream, uint32 version, MCore::Endian::EEndianType endianType)   { MCORE_UNUSED(stream); MCORE_UNUSED(version); MCORE_UNUSED(endianType); return true; }
 
         uint32 SaveUniqueData(const AnimGraphInstance* animGraphInstance, uint8* outputBuffer) const;  // save and return number of bytes written, when outputBuffer is nullptr only return num bytes it would write
         uint32 LoadUniqueData(const AnimGraphInstance* animGraphInstance, const uint8* dataBuffer);    // load and return number of bytes read, when dataBuffer is nullptr, 0 should be returned

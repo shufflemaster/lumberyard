@@ -77,10 +77,13 @@ namespace RoadsAndRivers
         AzFramework::SimpleAssetReference<LmbrCentral::MaterialAsset> m_material;
         AZStd::vector<RoadRenderNode> m_roadRenderNodes;
         bool m_ignoreTerrainHoles = false;
+        bool m_addOverlapBetweenSectors = false;
 
         void GenerateRenderNodes();
         void SetRenderProperties();
         void UpdateRenderNodeWithAssetMaterial();
+
+        void IgnoreTerrainHolesModified();
 
         void GeneralPropertyModified() override;
         void WidthPropertyModified() override;
@@ -90,5 +93,7 @@ namespace RoadsAndRivers
 
         // TransformNotificationBus::Handler
         virtual void OnTransformChanged(const AZ::Transform& local, const AZ::Transform& world) override;
+
+        static bool VersionConverter(AZ::SerializeContext& context, AZ::SerializeContext::DataElementNode& classElement);
     };
 }

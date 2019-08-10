@@ -108,7 +108,11 @@ static LRESULT WINAPI WndProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam
 
 #if defined(AZ_RESTRICTED_PLATFORM)
 #define AZ_RESTRICTED_SECTION SYSTEM_CPP_SECTION_1
-#include AZ_RESTRICTED_FILE(System_cpp, AZ_RESTRICTED_PLATFORM)
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/System_cpp_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/System_cpp_provo.inl"
+    #endif
 #endif
 
 
@@ -432,7 +436,11 @@ CSystem::CSystem(SharedEnvironmentInstance* pSharedEnvironment)
     m_sys_skip_input = nullptr;
 #if defined(AZ_RESTRICTED_PLATFORM)
 #define AZ_RESTRICTED_SECTION SYSTEM_CPP_SECTION_2
-#include AZ_RESTRICTED_FILE(System_cpp, AZ_RESTRICTED_PLATFORM)
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/System_cpp_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/System_cpp_provo.inl"
+    #endif
 #endif
     m_sys_min_step = 0;
     m_sys_max_step = 0;
@@ -502,6 +510,9 @@ CSystem::CSystem(SharedEnvironmentInstance* pSharedEnvironment)
     m_bInDevMode = false;
     m_bGameFolderWritable = false;
 
+    m_bDrawConsole = true;
+    m_bDrawUI = true;
+
     m_nServerConfigSpec = CONFIG_VERYHIGH_SPEC;
     m_nMaxConfigSpec = CONFIG_VERYHIGH_SPEC;
 
@@ -536,8 +547,6 @@ CSystem::CSystem(SharedEnvironmentInstance* pSharedEnvironment)
 
     g_pPakHeap = new CMTSafeHeap;
 
-    m_PlatformOSCreateFlags = 0;
-
     if (!AZ::AllocatorInstance<AZ::OSAllocator>::IsReady())
     {
         m_initedOSAllocator = true;
@@ -551,8 +560,6 @@ CSystem::CSystem(SharedEnvironmentInstance* pSharedEnvironment)
 
     m_UpdateTimesIdx = 0U;
     m_bNeedDoWorkDuringOcclusionChecks = false;
-
-    m_PlatformOSCreateFlags = 0;
 
     m_eRuntimeState = ESYSTEM_EVENT_LEVEL_UNLOAD;
 
@@ -625,12 +632,15 @@ void CSystem::Release()
 }
 
 //////////////////////////////////////////////////////////////////////////
-void CSystem::FreeLib(WIN_HMODULE hLibModule)
+void CSystem::FreeLib(AZStd::unique_ptr<AZ::DynamicModuleHandle>& hLibModule)
 {
     if (hLibModule)
     {
-        CryFreeLibrary(hLibModule);
-        (hLibModule) = NULL;
+        if (hLibModule->IsLoaded())
+        {
+            hLibModule->Unload();
+        }
+        hLibModule.release();
     }
 }
 
@@ -777,6 +787,8 @@ void CSystem::ShutDown()
     }
     //////////////////////////////////////////////////////////////////////////
 
+    CryLegacyAnimationRequestBus::Broadcast(&CryLegacyAnimationRequestBus::Events::ShutdownCharacterManager);
+
     // Shutdown resource manager.
     m_pResourceManager->Shutdown();
 
@@ -870,7 +882,11 @@ void CSystem::ShutDown()
 
 #if defined(AZ_RESTRICTED_PLATFORM)
 #define AZ_RESTRICTED_SECTION SYSTEM_CPP_SECTION_3
-#include AZ_RESTRICTED_FILE(System_cpp, AZ_RESTRICTED_PLATFORM)
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/System_cpp_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/System_cpp_provo.inl"
+    #endif
 #endif
 
     SAFE_RELEASE(m_sys_min_step);
@@ -987,7 +1003,11 @@ void CSystem::Quit()
     */
 #if defined(AZ_RESTRICTED_PLATFORM)
 #define AZ_RESTRICTED_SECTION SYSTEM_CPP_SECTION_4
-#include AZ_RESTRICTED_FILE(System_cpp, AZ_RESTRICTED_PLATFORM)
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/System_cpp_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/System_cpp_provo.inl"
+    #endif
 #endif
 #if defined(AZ_RESTRICTED_SECTION_IMPLEMENTED)
 #undef AZ_RESTRICTED_SECTION_IMPLEMENTED
@@ -1077,7 +1097,11 @@ public:
 
 #if defined(AZ_RESTRICTED_PLATFORM)
 #define AZ_RESTRICTED_SECTION SYSTEM_CPP_SECTION_5
-#include AZ_RESTRICTED_FILE(System_cpp, AZ_RESTRICTED_PLATFORM)
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/System_cpp_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/System_cpp_provo.inl"
+    #endif
 #endif
         while (true)
         {
@@ -1253,7 +1277,11 @@ void CSystem::CreatePhysicsThread()
         threadParams.nStackSizeKB = PHYSICS_STACK_SIZE >> 10;
 #if defined(AZ_RESTRICTED_PLATFORM)
 #define AZ_RESTRICTED_SECTION SYSTEM_CPP_SECTION_6
-#include AZ_RESTRICTED_FILE(System_cpp, AZ_RESTRICTED_PLATFORM)
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/System_cpp_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/System_cpp_provo.inl"
+    #endif
 #endif
 
         {            
@@ -1497,8 +1525,6 @@ bool CSystem::UpdatePreTickBus(int updateFlags, int nPauseMode)
 #endif //EXCLUDE_UPDATE_ON_CONSOLE
 
     gEnv->pOverloadSceneManager->Update();
-
-    m_pPlatformOS->Tick(m_Time.GetRealFrameTime());
 
 #ifdef WIN32
     // enable/disable SSE fp exceptions (#nan and /0)
@@ -2263,7 +2289,6 @@ bool CSystem::UpdatePostTickBus(int updateFlags, int nPauseMode)
 
 bool CSystem::UpdateLoadtime()
 {
-    m_pPlatformOS->Tick(m_Time.GetRealFrameTime());
     return !m_bQuit;
 }
 
@@ -2336,9 +2361,9 @@ void CSystem::UpdateMovieSystem(const int updateFlags, const float fFrameTime, c
 //////////////////////////////////////////////////////////////////////////
 
 //////////////////////////////////////////////////////////////////////////
-XmlNodeRef CSystem::CreateXmlNode(const char* sNodeName, bool bReuseStrings)
+XmlNodeRef CSystem::CreateXmlNode(const char* sNodeName, bool bReuseStrings, bool bIsProcessingInstruction)
 {
-    return new CXmlNode(sNodeName, bReuseStrings);
+    return new CXmlNode(sNodeName, bReuseStrings, bIsProcessingInstruction);
 }
 
 //////////////////////////////////////////////////////////////////////////
@@ -2521,6 +2546,14 @@ void CSystem::GetLocalizedPath(const char* sLanguage, string& sLocalizedPath)
     // Omit the trailing slash!
     string sLocalizationFolder(string().assign(PathUtil::GetLocalizationFolder(), 0, PathUtil::GetLocalizationFolder().size() - 1));
 
+    int locFormat = 0;
+    LocalizationManagerRequestBus::BroadcastResult(locFormat, &LocalizationManagerRequestBus::Events::GetLocalizationFormat);
+    if(locFormat == 1)
+    {
+        sLocalizedPath = sLocalizationFolder + "/" + sLanguage + ".loc.agsxml";
+    }
+    else
+    {
     if (sLocalizationFolder.compareNoCase("Languages") != 0)
     {
         sLocalizedPath = sLocalizationFolder + "/" + sLanguage + "_xml.pak";
@@ -2528,6 +2561,7 @@ void CSystem::GetLocalizedPath(const char* sLanguage, string& sLocalizedPath)
     else
     {
         sLocalizedPath = string("Localized/") + sLanguage + "_xml.pak";
+        }
     }
 }
 
@@ -2625,7 +2659,11 @@ void CSystem::debug_GetCallStackRaw(void** callstack, uint32& callstackLength)
     callstackLength = RtlCaptureStackBackTrace(nNumStackFramesToSkip, callstackCapacity, callstack, NULL);
 #elif defined(AZ_RESTRICTED_PLATFORM)
 #define AZ_RESTRICTED_SECTION SYSTEM_CPP_SECTION_7
-#include AZ_RESTRICTED_FILE(System_cpp, AZ_RESTRICTED_PLATFORM)
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/System_cpp_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/System_cpp_provo.inl"
+    #endif
 #endif
 
     if (callstackLength > 0)
@@ -2904,12 +2942,15 @@ bool CSystem::SteamInit()
         return true;
     }
 
+    AZStd::string_view binFolderName;
+    AzFramework::ApplicationRequests::Bus::BroadcastResult(binFolderName, &AzFramework::ApplicationRequests::GetBinSubfolder);
+
     ////////////////////////////////////////////////////////////////////////////
     // ** DEVELOPMENT ONLY ** - creates the appropriate steam_appid.txt file needed to call SteamAPI_Init()
 #if !defined(RELEASE)
 #if defined(WIN64)
-    FILE* pSteamAppID = nullptr;
-    azfopen(&pSteamAppID, BINFOLDER_NAME "/steam_appid.txt", "wt");
+    AZStd::string appidPath = AZStd::string::format("%s/steam_appid.txt", binFolderName.data());
+    azfopen(&pSteamAppID, appidPath.c_str(), "wt");
 #else
 #if defined(WIN32)
     FILE* pSteamAppID = nullptr;
@@ -2932,7 +2973,7 @@ bool CSystem::SteamInit()
     // ** DEVELOPMENT ONLY ** - deletes the appropriate steam_appid.txt file as it's no longer needed
 #if !defined(RELEASE)
 #if defined(WIN64)
-    remove(BINFOLDER_NAME "/steam_appid.txt");
+    remove(appidPath.c_str());
 #else
 #if defined(WIN32)
     remove("Bin32/steam_appid.txt");
@@ -2959,10 +3000,18 @@ void CSystem::OnLanguageCVarChanged(ICVar* language)
         {
             const char* lang = language->GetString();
 
-            pSys->CloseLanguagePak(pSys->GetLocalizationManager()->GetLanguage());
+            // Hook up Localization initialization
+            int locFormat = 0;
+            LocalizationManagerRequestBus::BroadcastResult(locFormat, &LocalizationManagerRequestBus::Events::GetLocalizationFormat);
+            if (locFormat == 0)
+            {
+                const char* locLanguage = nullptr;
+                LocalizationManagerRequestBus::BroadcastResult(locLanguage, &LocalizationManagerRequestBus::Events::GetLanguage);
             pSys->OpenLanguagePak(lang);
-            pSys->GetLocalizationManager()->SetLanguage(lang);
-            pSys->GetLocalizationManager()->ReloadData();
+            }
+
+            LocalizationManagerRequestBus::Broadcast(&LocalizationManagerRequestBus::Events::SetLanguage, lang);
+            LocalizationManagerRequestBus::Broadcast(&LocalizationManagerRequestBus::Events::ReloadData);
 
             if (gEnv->pCryFont)
             {

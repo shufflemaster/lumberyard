@@ -42,6 +42,7 @@ namespace AssetProcessor
     class AssetCatalog;
     class InternalAssetBuilderInfo;
     class AssetRequestHandler;
+    class AssetServerHandler;
     class FileProcessor;
 }
 
@@ -96,7 +97,8 @@ public:
     void UnRegisterBuilderDescriptor(const AZ::Uuid& builderId) override;
 
     //! AssetProcessor::AssetBuilderInfoBus Interface
-    void GetMatchingBuildersInfo(const AZStd::string& assetPath, AssetProcessor::BuilderInfoList& builderInfoList);
+    void GetMatchingBuildersInfo(const AZStd::string& assetPath, AssetProcessor::BuilderInfoList& builderInfoList) override;
+    void GetAllBuildersInfo(AssetProcessor::BuilderInfoList& builderInfoList) override;
 
     //! TraceMessageBus Interface
     bool OnError(const char* window, const char* message) override;
@@ -107,10 +109,15 @@ public:
 
     void RemoveOldTempFolders();
 
+    void Rescan();
+
 Q_SIGNALS:
     void CheckAssetProcessorManagerIdleState();
     void ConnectionStatusMsg(QString message);
-    public Q_SLOTS:
+
+    void OnBuildersRegistered();
+
+public Q_SLOTS:
     void OnAssetProcessorManagerIdleState(bool isIdle);
 
 protected:
@@ -137,6 +144,8 @@ protected:
     void ShutdownBuilderManager();
     bool InitAssetDatabase();
     void ShutDownAssetDatabase();
+    void InitAssetServerHandler();
+    void DestroyAssetServerHandler();
     void InitFileProcessor();
     void ShutDownFileProcessor();
 
@@ -174,6 +183,7 @@ private:
     AssetProcessor::RCController* m_rcController = nullptr;
     AssetProcessor::AssetRequestHandler* m_assetRequestHandler = nullptr;
     AssetProcessor::BuilderManager* m_builderManager = nullptr;
+    AssetProcessor::AssetServerHandler* m_assetServerHandler = nullptr;
 
     AZStd::unique_ptr<AssetProcessor::FileProcessor> m_fileProcessor;
 

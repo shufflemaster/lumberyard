@@ -206,7 +206,11 @@ namespace AZ
             moduleHandlesOpen += modulePtr->GetDebugName();
             moduleHandlesOpen += "\n";
         }
-        AZ_Assert(m_notOwnedModules.empty(), "ModuleManager being destroyed, but module handles are still open:\n%s", moduleHandlesOpen.c_str());
+
+        if (!m_notOwnedModules.empty())
+        {
+            AZ_TracePrintf(s_moduleLoggingScope, "ModuleManager being destroyed, but non-owned module handles are still open:\n%s", moduleHandlesOpen.c_str());
+        }
 #endif // AZ_ENABLE_TRACING
 
         // Clear the weak modules list
@@ -219,15 +223,12 @@ namespace AZ
         Internal::ModuleManagerInternalRequestBus::Handler::BusDisconnect();
     }
 
-    //=========================================================================
-    // UnloadModules
-    //=========================================================================
-    void ModuleManager::UnloadModules()
+    void ModuleManager::DeactivateEntities()
     {
         // For all modules that we created an entity for, set them to "Deactivating"
         for (auto& moduleData : m_ownedModules)
         {
-            if (moduleData->m_moduleEntity)
+            if (moduleData->m_moduleEntity && moduleData->m_lastCompletedStep == ModuleInitializationSteps::ActivateEntity)
             {
                 moduleData->m_moduleEntity->SetState(Entity::ES_DEACTIVATING);
             }
@@ -242,12 +243,23 @@ namespace AZ
         // For all modules that we created an entity for, set them to "Init" (meaning not Activated)
         for (auto& moduleData : m_ownedModules)
         {
-            if (moduleData->m_moduleEntity)
+            if (moduleData->m_moduleEntity && moduleData->m_lastCompletedStep == ModuleInitializationSteps::ActivateEntity)
             {
                 moduleData->m_moduleEntity->SetState(Entity::ES_INIT);
+                moduleData->m_lastCompletedStep = ModuleInitializationSteps::RegisterComponentDescriptors;
             }
         }
 
+        // Since the system components have been deactivated clear out the vector.
+        m_systemComponents.clear();
+    }
+
+    //=========================================================================
+    // UnloadModules
+    //=========================================================================
+    void ModuleManager::UnloadModules()
+    {
+        DeactivateEntities();
         // Because everything is unique_ptr, we don't need to explicitly delete anything
         // Shutdown in reverse order of initialization, just in case the order matters.
         while (!m_ownedModules.empty())
@@ -724,25 +736,10 @@ namespace AZ
         }
         
         // Topo sort components, activate them
-        Entity::DependencySortResult result = ModuleEntity::DependencySort(componentsToActivate);
-        switch (result)
+        Entity::DependencySortOutcome outcome = ModuleEntity::DependencySort(componentsToActivate);
+        if (!outcome.IsSuccess())
         {
-        case Entity::DependencySortResult::Success:
-            break;
-        case Entity::DependencySortResult::MissingRequiredService:
-            AZ_Error(s_moduleLoggingScope, false, "Module Entities have missing required services and cannot be activated.");
-            return;
-        case Entity::DependencySortResult::HasCyclicDependency:
-            AZ_Error(s_moduleLoggingScope, false, "Module Entities' components order have cyclic dependency and cannot be activated.");
-            return;
-        case Entity::DependencySortResult::HasIncompatibleServices:
-            AZ_Error(s_moduleLoggingScope, false, "Module Entities' components are incompatible and cannot be activated.");
-            return;
-        case Entity::DependencySortResult::DescriptorNotRegistered:
-            AZ_Error(s_moduleLoggingScope, false, "Module Entities' components are not registered with the component application.");
-            return;
-        default:
-            AZ_Error(s_moduleLoggingScope, false, "Module Entities's components have an unexpected issue and cannot be activated.");
+            AZ_Error(s_moduleLoggingScope, false, "Modules Entities cannot be activated. %s", outcome.GetError().m_message.c_str());
             return;
         }
         

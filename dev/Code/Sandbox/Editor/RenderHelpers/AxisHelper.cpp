@@ -65,13 +65,13 @@ void CAxisHelper::Prepare(const Matrix34& worldTM, const SGizmoParameters& setup
     view->GetPerpendicularAxis(&axis, &b2D);
     switch (axis)
     {
-    case AXIS_X:
+    case static_cast<IDisplayViewport::EAxis>(AXIS_X):
         m_bNeedX = false;
         break;
-    case AXIS_Y:
+    case static_cast<IDisplayViewport::EAxis>(AXIS_Y):
         m_bNeedY = false;
         break;
-    case AXIS_Z:
+    case static_cast<IDisplayViewport::EAxis>(AXIS_Z):
         m_bNeedZ = false;
         break;
     }
@@ -662,11 +662,8 @@ bool CAxisHelper::HitTest(const Matrix34& worldTM, const SGizmoParameters& setup
     }
     else
     {
-        // Bring the screen scale to roughly 0-1 range.
-        const float screenScale = 0.01f * m_fScreenScale;
-        // Start the closestAxis value at the maximum selection radius based on the user's settings, multiplied
-        // by a scalar based on the screen's resolution.
-        float closestAxis = GetIEditor()->GetObjectManager()->GetAxisHelperHitRadius() * screenScale;
+        // Start the closestAxis value at the maximum selection radius based on the user's settings
+        float closestAxis = GetIEditor()->GetObjectManager()->GetAxisHelperHitRadius();
 
         float distanceToAxis = hc.view->GetDistanceToLine(pos, pos + x, hc.point2d);
         if(distanceToAxis < closestAxis)

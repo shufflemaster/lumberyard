@@ -1218,6 +1218,7 @@ void UiTextInputComponent::Reflect(AZ::ReflectContext* context)
             auto editInfo = ec->Class<UiTextInputComponent>("TextInput", "An interactable component for editing a text string.");
 
             editInfo->ClassElement(AZ::Edit::ClassElements::EditorData, "")
+                ->Attribute(AZ::Edit::Attributes::Category, "UI")
                 ->Attribute(AZ::Edit::Attributes::Icon, "Editor/Icons/Components/UiTextInput.png")
                 ->Attribute(AZ::Edit::Attributes::ViewportIcon, "Editor/Icons/Components/Viewport/UiTextInput.png")
                 ->Attribute(AZ::Edit::Attributes::AppearsInAddComponentMenu, AZ_CRC("UI", 0x27ff46b0))
@@ -1374,6 +1375,10 @@ void UiTextInputComponent::CheckStartTextInput()
         EBUS_EVENT_ID(GetEntityId(), UiTransformBus, GetViewportSpacePoints, rectPoints);
         const AZ::Vector2 bottomRight = rectPoints.GetAxisAlignedBottomRight();
         options.m_normalizedMinY = bottomRight.GetY() / static_cast<float>(gEnv->pRenderer->GetHeight());
+
+        AZ::EntityId canvasEntityId;
+        EBUS_EVENT_ID_RESULT(canvasEntityId, GetEntityId(), UiElementBus, GetCanvasEntityId);
+        EBUS_EVENT_ID_RESULT(options.m_localUserId, canvasEntityId, UiCanvasBus, GetLocalUserIdInputFilter);
 
         AzFramework::InputTextEntryRequestBus::Broadcast(&AzFramework::InputTextEntryRequests::TextEntryStart, options);
 

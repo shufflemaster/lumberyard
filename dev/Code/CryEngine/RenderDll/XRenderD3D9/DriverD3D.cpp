@@ -90,7 +90,11 @@ namespace detail
     {
 #if defined(AZ_RESTRICTED_PLATFORM)
 #define AZ_RESTRICTED_SECTION DRIVERD3D_CPP_SECTION_1
-#include AZ_RESTRICTED_FILE(DriverD3D_cpp, AZ_RESTRICTED_PLATFORM)
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/DriverD3D_cpp_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/DriverD3D_cpp_provo.inl"
+    #endif
 #endif
 #if defined(AZ_RESTRICTED_SECTION_IMPLEMENTED)
 #undef AZ_RESTRICTED_SECTION_IMPLEMENTED
@@ -342,7 +346,11 @@ void CD3D9Renderer::InitRenderer()
     m_pPipelineProfiler = NULL;
 #if defined(AZ_RESTRICTED_PLATFORM)
 #define AZ_RESTRICTED_SECTION DRIVERD3D_CPP_SECTION_3
-#include AZ_RESTRICTED_FILE(DriverD3D_cpp, AZ_RESTRICTED_PLATFORM)
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/DriverD3D_cpp_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/DriverD3D_cpp_provo.inl"
+    #endif
 #endif
 
 #if defined(ENABLE_PROFILING_GPU_TIMERS)
@@ -499,6 +507,9 @@ void CD3D9Renderer::InitRenderer()
     gEnv->pStatoscope->RegisterDataGroup(m_pGraphicsDG);
     gEnv->pStatoscope->RegisterDataGroup(m_pPerformanceOverviewDG);
 #endif
+
+    m_gmemDepthStencilMode = eGDSM_Invalid;
+    AZ::RenderNotificationsBus::Handler::BusConnect();
 }
 
 CD3D9Renderer::~CD3D9Renderer()
@@ -515,6 +526,8 @@ void CD3D9Renderer::StaticCleanup()
 
 void CD3D9Renderer::Release()
 {
+
+    AZ::RenderNotificationsBus::Handler::BusDisconnect();
     //FreeResources(FRR_ALL);
     ShutDown();
 
@@ -544,6 +557,8 @@ void CD3D9Renderer::Release()
         delete m_AsyncShaderTasks[a];
     }
 #endif
+
+    m_2dImages.clear();
 
     CRenderer::Release();
 
@@ -629,7 +644,11 @@ void CD3D9Renderer::ChangeViewport(unsigned int x, unsigned int y, unsigned int 
         scDesc.BufferCount = 1;
 #if defined(AZ_RESTRICTED_PLATFORM)
 #define AZ_RESTRICTED_SECTION DRIVERD3D_CPP_SECTION_4
-#include AZ_RESTRICTED_FILE(DriverD3D_cpp, AZ_RESTRICTED_PLATFORM)
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/DriverD3D_cpp_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/DriverD3D_cpp_provo.inl"
+    #endif
 #endif
 #if defined(AZ_RESTRICTED_SECTION_IMPLEMENTED)
 #undef AZ_RESTRICTED_SECTION_IMPLEMENTED
@@ -645,7 +664,11 @@ void CD3D9Renderer::ChangeViewport(unsigned int x, unsigned int y, unsigned int 
 #define AZ_RESTRICTED_SECTION_IMPLEMENTED
 #elif defined(AZ_RESTRICTED_PLATFORM)
 #define AZ_RESTRICTED_SECTION DRIVERD3D_CPP_SECTION_5
-#include AZ_RESTRICTED_FILE(DriverD3D_cpp, AZ_RESTRICTED_PLATFORM)
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/DriverD3D_cpp_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/DriverD3D_cpp_provo.inl"
+    #endif
 #endif
 #if defined(AZ_RESTRICTED_SECTION_IMPLEMENTED)
 #undef AZ_RESTRICTED_SECTION_IMPLEMENTED
@@ -1095,7 +1118,11 @@ void CD3D9Renderer::DrawTexelsPerMeterInfo()
 
 #if defined(AZ_RESTRICTED_PLATFORM)
 #define AZ_RESTRICTED_SECTION DRIVERD3D_CPP_SECTION_6
-#include AZ_RESTRICTED_FILE(DriverD3D_cpp, AZ_RESTRICTED_PLATFORM)
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/DriverD3D_cpp_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/DriverD3D_cpp_provo.inl"
+    #endif
 #endif
 
 void CD3D9Renderer::RT_ForceSwapBuffers()
@@ -1106,7 +1133,11 @@ void CD3D9Renderer::SwitchToNativeResolutionBackbuffer()
 {
 #if defined(AZ_RESTRICTED_PLATFORM)
 #define AZ_RESTRICTED_SECTION DRIVERD3D_CPP_SECTION_7
-#include AZ_RESTRICTED_FILE(DriverD3D_cpp, AZ_RESTRICTED_PLATFORM)
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/DriverD3D_cpp_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/DriverD3D_cpp_provo.inl"
+    #endif
 #endif
 
     m_pRT->RC_SwitchToNativeResolutionBackbuffer();
@@ -1606,7 +1637,12 @@ void CD3D9Renderer::RT_BeginFrame()
     }
 
 #if defined(SUPPORT_DEVICE_INFO)
+
+#if AZ_RENDER_TO_TEXTURE_GEM_ENABLED
+    if (m_bEditor && !IsRenderToTextureActive())
+#else
     if (m_bEditor)
+#endif //if AZ_RENDER_TO_TEXTURE_GEM_ENABLED
     {
         const int width = GetWidth();
         const int height = GetHeight();
@@ -1926,7 +1962,11 @@ bool CD3D9Renderer::CaptureFrameBufferToFile(const char* pFilePath, CTexture* pR
 
 #if defined(AZ_RESTRICTED_PLATFORM)
 #define AZ_RESTRICTED_SECTION DRIVERD3D_CPP_SECTION_8
-#include AZ_RESTRICTED_FILE(DriverD3D_cpp, AZ_RESTRICTED_PLATFORM)
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/DriverD3D_cpp_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/DriverD3D_cpp_provo.inl"
+    #endif
 #endif
 #if defined(AZ_RESTRICTED_SECTION_IMPLEMENTED)
 #undef AZ_RESTRICTED_SECTION_IMPLEMENTED
@@ -2404,7 +2444,7 @@ void CD3D9Renderer::DebugDrawStats1()
     Draw2dLabel(nX, nY += nYstep, fFSize, &col.r, false, "Shadow-pass: %d (%d polys)", m_RP.m_PS[m_RP.m_nProcessThreadID].m_nDIPs[EFSLIST_SHADOW_PASS], m_RP.m_PS[m_RP.m_nProcessThreadID].m_nPolygons[EFSLIST_SHADOW_PASS]);
     Draw2dLabel(nX, nY += nYstep, fFSize, &col.r, false, "Water: %d (%d polys, %.3fms)", m_RP.m_PS[m_RP.m_nProcessThreadID].m_nDIPs[EFSLIST_WATER], m_RP.m_PS[m_RP.m_nProcessThreadID].m_nPolygons[EFSLIST_WATER], m_RP.m_PS[m_RP.m_nProcessThreadID].m_fTimeDIPs[EFSLIST_WATER_VOLUMES] * 1000.0f);
     Draw2dLabel(nX, nY += nYstep, fFSize, &col.r, false, "Refractive Surface: %d (%d polys, %.3fms)", m_RP.m_PS[m_RP.m_nProcessThreadID].m_nDIPs[EFSLIST_REFRACTIVE_SURFACE], m_RP.m_PS[m_RP.m_nProcessThreadID].m_nPolygons[EFSLIST_REFRACTIVE_SURFACE], m_RP.m_PS[m_RP.m_nProcessThreadID].m_fTimeDIPs[EFSLIST_REFRACTIVE_SURFACE] * 1000.0f);
-	Draw2dLabel(nX, nY += nYstep, fFSize, &col.r, false, "Imposters: %d (Updates: %d)", m_RP.m_PS[m_RP.m_nProcessThreadID].m_NumCloudImpostersDraw, m_RP.m_PS[m_RP.m_nProcessThreadID].m_NumCloudImpostersUpdates);
+    Draw2dLabel(nX, nY += nYstep, fFSize, &col.r, false, "Imposters: %d (Updates: %d)", m_RP.m_PS[m_RP.m_nProcessThreadID].m_NumCloudImpostersDraw, m_RP.m_PS[m_RP.m_nProcessThreadID].m_NumCloudImpostersUpdates);
     Draw2dLabel(nX, nY += nYstep, fFSize, &col.r, false, "Sprites: %d (%d dips, %d updates, %d altases, %d cells, %d polys)", m_RP.m_PS[m_RP.m_nProcessThreadID].m_NumSprites, m_RP.m_PS[m_RP.m_nProcessThreadID].m_NumSpriteDIPS, m_RP.m_PS[m_RP.m_nProcessThreadID].m_NumSpriteUpdates, m_RP.m_PS[m_RP.m_nProcessThreadID].m_NumSpriteAltasesUsed, m_RP.m_PS[m_RP.m_nProcessThreadID].m_NumSpriteCellsUsed, m_RP.m_PS[m_RP.m_nProcessThreadID].m_NumSpritePolys /*, m_RP.m_PS[m_RP.m_nProcessThreadID].m_fTimeDIPsSprites*1000.0f*/);
 
     Draw2dLabel(nX - 5, nY + 20, 1.4f, &col.r, false, "Total: %d (%d polys)", GetCurrentNumberOfDrawCalls(), GetPolyCount());
@@ -3372,7 +3412,11 @@ void CD3D9Renderer::DebugPrintShader(CHWShader_D3D* pSH, void* pI, int nX, int n
 {
 #if defined(AZ_RESTRICTED_PLATFORM)
 #define AZ_RESTRICTED_SECTION DRIVERD3D_CPP_SECTION_9
-#include AZ_RESTRICTED_FILE(DriverD3D_cpp, AZ_RESTRICTED_PLATFORM)
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/DriverD3D_cpp_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/DriverD3D_cpp_provo.inl"
+    #endif
 #endif
 #if defined(AZ_RESTRICTED_SECTION_IMPLEMENTED)
 #undef AZ_RESTRICTED_SECTION_IMPLEMENTED
@@ -4435,6 +4479,11 @@ static uint32 ComputePresentInterval(bool vsync, uint32 refreshNumerator, uint32
 
 void CD3D9Renderer::RT_EndFrame()
 {
+    RT_EndFrame(false);
+}
+
+void CD3D9Renderer::RT_EndFrame(bool isLoading)
+{
     FUNCTION_PROFILER_FAST(GetISystem(), PROFILE_RENDERER, g_bProfilerEnabled);
 
     if (!m_SceneRecurseCount)
@@ -4453,7 +4502,20 @@ void CD3D9Renderer::RT_EndFrame()
 
     CTimeValue TimeEndF = iTimer->GetAsyncTime();
 
-    CTexture::Update();
+    if (isLoading)
+    {
+        // Call loading-safe texture update which only applies the schedule. The render loading thread will handle the update.
+        CTexture::RT_LoadingUpdate();
+    }
+    else
+    {
+        CTexture::Update();
+    }
+
+    if (CV_r_VRAMDebug == 1)
+    {
+        m_DevMan.DisplayMemoryUsage();
+    }
 
     if (m_CVDisplayInfo && m_CVDisplayInfo->GetIVal() && iSystem && iSystem->IsDevMode())
     {
@@ -4612,7 +4674,11 @@ void CD3D9Renderer::RT_EndFrame()
 #endif
 #if defined(AZ_RESTRICTED_PLATFORM)
 #define AZ_RESTRICTED_SECTION DRIVERD3D_CPP_SECTION_10
-#include AZ_RESTRICTED_FILE(DriverD3D_cpp, AZ_RESTRICTED_PLATFORM)
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/DriverD3D_cpp_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/DriverD3D_cpp_provo.inl"
+    #endif
 #endif
 #if defined(AZ_RESTRICTED_SECTION_IMPLEMENTED)
 #undef AZ_RESTRICTED_SECTION_IMPLEMENTED
@@ -4802,7 +4868,11 @@ void CD3D9Renderer::RT_EndFrame()
 
 #if defined(AZ_RESTRICTED_PLATFORM)
 #define AZ_RESTRICTED_SECTION DRIVERD3D_CPP_SECTION_11
-#include AZ_RESTRICTED_FILE(DriverD3D_cpp, AZ_RESTRICTED_PLATFORM)
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/DriverD3D_cpp_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/DriverD3D_cpp_provo.inl"
+    #endif
 #endif
 #if defined(AZ_RESTRICTED_SECTION_IMPLEMENTED)
 #undef AZ_RESTRICTED_SECTION_IMPLEMENTED
@@ -4842,7 +4912,11 @@ void CD3D9Renderer::RT_PresentFast()
     HRESULT hReturn = S_OK;
 #if defined(AZ_RESTRICTED_PLATFORM)
 #define AZ_RESTRICTED_SECTION DRIVERD3D_CPP_SECTION_12
-#include AZ_RESTRICTED_FILE(DriverD3D_cpp, AZ_RESTRICTED_PLATFORM)
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/DriverD3D_cpp_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/DriverD3D_cpp_provo.inl"
+    #endif
 #endif
 #if defined(AZ_RESTRICTED_SECTION_IMPLEMENTED)
 #undef AZ_RESTRICTED_SECTION_IMPLEMENTED
@@ -4903,7 +4977,11 @@ bool CD3D9Renderer::ScreenShotInternal(const char* filename, int iPreWidth)
         {
 #if defined(AZ_RESTRICTED_PLATFORM)
 #define AZ_RESTRICTED_SECTION DRIVERD3D_CPP_SECTION_13
-#include AZ_RESTRICTED_FILE(DriverD3D_cpp, AZ_RESTRICTED_PLATFORM)
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/DriverD3D_cpp_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/DriverD3D_cpp_provo.inl"
+    #endif
 #endif
 #if defined(AZ_RESTRICTED_SECTION_IMPLEMENTED)
 #undef AZ_RESTRICTED_SECTION_IMPLEMENTED
@@ -4916,7 +4994,11 @@ bool CD3D9Renderer::ScreenShotInternal(const char* filename, int iPreWidth)
             {
 #if defined(AZ_RESTRICTED_PLATFORM)
 #define AZ_RESTRICTED_SECTION DRIVERD3D_CPP_SECTION_14
-#include AZ_RESTRICTED_FILE(DriverD3D_cpp, AZ_RESTRICTED_PLATFORM)
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/DriverD3D_cpp_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/DriverD3D_cpp_provo.inl"
+    #endif
 #endif
 #if defined(AZ_RESTRICTED_SECTION_IMPLEMENTED)
 #undef AZ_RESTRICTED_SECTION_IMPLEMENTED
@@ -4937,7 +5019,11 @@ bool CD3D9Renderer::ScreenShotInternal(const char* filename, int iPreWidth)
         // HACK: DONT REMOVE Stereo3D will add _L and _R suffix later
 #if defined(AZ_RESTRICTED_PLATFORM)
 #define AZ_RESTRICTED_SECTION DRIVERD3D_CPP_SECTION_15
-#include AZ_RESTRICTED_FILE(DriverD3D_cpp, AZ_RESTRICTED_PLATFORM)
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/DriverD3D_cpp_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/DriverD3D_cpp_provo.inl"
+    #endif
 #endif
 #if defined(AZ_RESTRICTED_SECTION_IMPLEMENTED)
 #undef AZ_RESTRICTED_SECTION_IMPLEMENTED
@@ -5020,6 +5106,12 @@ int CD3D9Renderer::CreateRenderTarget(const char* name, int nWidth, int nHeight,
         return -1;
     }
 
+    const int maxTextureSize = GetMaxTextureSize();
+    if (maxTextureSize > 0 && (nWidth > maxTextureSize || nHeight > maxTextureSize))
+    {
+        return -1;
+    }
+
     CTexture* pTex = CTexture::CreateRenderTarget(name, nWidth, nHeight, clearColor, eTT_2D, FT_NOMIPS, eTF);
 
     return pTex->GetID();
@@ -5029,6 +5121,40 @@ bool CD3D9Renderer::DestroyRenderTarget(int nHandle)
 {
     CTexture* pTex = CTexture::GetByID(nHandle);
     SAFE_RELEASE(pTex);
+    return true;
+}
+
+bool CD3D9Renderer::ResizeRenderTarget(int nHandle, int nWidth, int nHeight)
+{
+    // check if parameters are valid
+    if (!nWidth || !nHeight)
+    {
+        return false;
+    }
+
+    const int maxTextureSize = GetMaxTextureSize();
+    if (maxTextureSize > 0 && (nWidth > maxTextureSize || nHeight > maxTextureSize))
+    {
+        return false;
+    }
+    
+    CTexture* pTex = CTexture::GetByID(nHandle);
+    if (!pTex || !(pTex->GetFlags() & FT_USAGE_RENDERTARGET))
+    {
+        return false;
+    }    
+    m_pRT->EnqueueRenderCommand(
+        [nHandle, nWidth, nHeight]() mutable 
+        {
+            CTexture* pTex = CTexture::GetByID(nHandle);
+            if (pTex && pTex->GetFlags() & FT_USAGE_RENDERTARGET)
+            {
+                pTex->SetWidth(nWidth);
+                pTex->SetHeight(nHeight);
+                pTex->CreateRenderTarget(pTex->GetDstFormat(), pTex->GetClearColor());
+            }
+        });
+
     return true;
 }
 
@@ -5052,13 +5178,13 @@ bool CD3D9Renderer::SetRenderTarget(int nHandle, SDepthTexture* pDepthSurf)
     return true;
 }
 
-SDepthTexture* CD3D9Renderer::CreateDepthSurface(int nWidth, int nHeight)
+SDepthTexture* CD3D9Renderer::CreateDepthSurface(int nWidth, int nHeight, bool shaderResourceView)
 {
     SDepthTexture* pDepthTexture = new SDepthTexture;
     pDepthTexture->nWidth = nWidth;
     pDepthTexture->nHeight = nHeight;
 
-    m_pRT->EnqueueRenderCommand([this, pDepthTexture]() 
+    m_pRT->EnqueueRenderCommand([this, pDepthTexture, shaderResourceView]() 
     {
         AZ_TRACE_METHOD_NAME("CreateDepthSurface");
 
@@ -5068,11 +5194,11 @@ SDepthTexture* CD3D9Renderer::CreateDepthSurface(int nWidth, int nHeight)
         descDepth.Height = pDepthTexture->nHeight;
         descDepth.MipLevels = 1;
         descDepth.ArraySize = 1;
-        descDepth.Format = CTexture::ConvertToDepthStencilFmt(m_ZFormat);
+        descDepth.Format = shaderResourceView ? m_ZFormat : CTexture::ConvertToDepthStencilFmt(m_ZFormat);;
         descDepth.SampleDesc.Count = 1;
         descDepth.SampleDesc.Quality = 0;
         descDepth.Usage = D3D11_USAGE_DEFAULT;
-        descDepth.BindFlags = D3D11_BIND_DEPTH_STENCIL;
+        descDepth.BindFlags = shaderResourceView ? D3D11_BIND_DEPTH_STENCIL | D3D11_BIND_SHADER_RESOURCE : D3D11_BIND_DEPTH_STENCIL;
         descDepth.CPUAccessFlags = 0;
         descDepth.MiscFlags = 0;
 
@@ -7010,69 +7136,7 @@ int s_In2DMode[RT_COMMAND_BUF_COUNT];
 
 void CD3D9Renderer::Set2DMode(uint32 orthoX, uint32 orthoY, TransformationMatrices& backupMatrices, float znear, float zfar)
 {
-    int nThreadID = m_pRT->GetThreadList();
-
-#ifdef _DEBUG
-    assert(s_In2DMode[nThreadID]++ >= 0);
-#endif
-
-    backupMatrices.m_projectMatrix = m_RP.m_TI[nThreadID].m_matProj;
-    Matrix44A* m = &m_RP.m_TI[nThreadID].m_matProj;
-
-    //Move the zfar a bit away from the znear if they're the same.
-    if (AZ::IsClose(znear, zfar, .001f))
-    {
-        zfar += .01f;
-    }
-
-    float left = 0.0f;
-    float right = orthoX;
-    float top = 0.0f;
-    float bottom = orthoY;
-
-    // If we are doing tiled rendering (e.g. for a hi-res screenshot) then adjust the viewport
-    const SRenderTileInfo* rti = GetRenderTileInfo();
-    if (rti->nGridSizeX > 1.0f || rti->nGridSizeY > 1.0f)
-    {
-        // The tile size includes a transition border around it. This has all been pre-calculated by
-        // the code that sets up the tiling.
-        float halfTileWidth = (orthoX / rti->nGridSizeX) * 0.5f;
-        float halfTileHeight = (orthoY / rti->nGridSizeY) * 0.5f;
-
-        // This is the normalized offset from the center of the (non-tiled) viewport to the center of the tile.
-        // Again the numbers in the struct have been pre-calculated to make setting a 3D matrix easier.
-        float normalizedOffsetX = (rti->nGridSizeX - 1.f) - rti->nPosX * 2.0f;
-        float normalizedOffsetY = (rti->nGridSizeY - 1.f) - rti->nPosY * 2.0f;
-
-        // calculate the midpoint of this tile
-        float midX = (orthoX * 0.5f) + (halfTileWidth * normalizedOffsetX);
-        float midY = (orthoY * 0.5f) + (halfTileHeight * normalizedOffsetY);
-
-        left = midX - halfTileWidth;
-        right = midX + halfTileWidth;
-        top = midY - halfTileHeight;
-        bottom = midY + halfTileHeight;
-    }
-
-    mathMatrixOrthoOffCenterLH(m, left, right, bottom, top, znear, zfar);
-
-    if (m_RP.m_TI[nThreadID].m_PersFlags & RBPF_REVERSE_DEPTH)
-    {
-        (*m) = ReverseDepthHelper::Convert(*m);
-    }
-#if defined(ENABLE_RENDER_AUX_GEOM)
-    if (m_pRenderAuxGeomD3D)
-    {
-        m_pRenderAuxGeomD3D->SetOrthoMode(true, m);
-    }
-
-#endif
-
-    backupMatrices.m_viewMatrix = m_RP.m_TI[nThreadID].m_matView;
-    m = &m_RP.m_TI[nThreadID].m_matView;
-    m_RP.m_TI[nThreadID].m_matView.SetIdentity();
-
-    EF_SetCameraInfo();
+    Set2DModeNonZeroTopLeft(0.0f, 0.0f, orthoX, orthoY, backupMatrices, znear, zfar);
 }
 
 void CD3D9Renderer::Unset2DMode(const TransformationMatrices& restoringMatrices)
@@ -7092,6 +7156,72 @@ void CD3D9Renderer::Unset2DMode(const TransformationMatrices& restoringMatrices)
 
     m_RP.m_TI[nThreadID].m_matView = restoringMatrices.m_viewMatrix;
     m_RP.m_TI[nThreadID].m_matProj = restoringMatrices.m_projectMatrix;
+    EF_SetCameraInfo();
+}
+
+void CD3D9Renderer::Set2DModeNonZeroTopLeft(float orthoLeft, float orthoTop, float orthoWidth, float orthoHeight, TransformationMatrices& backupMatrices, float znear, float zfar)
+{
+    int nThreadID = m_pRT->GetThreadList();
+
+#ifdef _DEBUG
+    assert(s_In2DMode[nThreadID]++ >= 0);
+#endif
+
+    backupMatrices.m_projectMatrix = m_RP.m_TI[nThreadID].m_matProj;
+    Matrix44A* m = &m_RP.m_TI[nThreadID].m_matProj;
+
+    //Move the zfar a bit away from the znear if they're the same.
+    if (AZ::IsClose(znear, zfar, .001f))
+    {
+        zfar += .01f;
+    }
+
+    float left = orthoLeft;
+    float right = left + orthoWidth;
+    float top = orthoTop;
+    float bottom = top + orthoHeight;
+
+    // If we are doing tiled rendering (e.g. for a hi-res screenshot) then adjust the viewport
+    const SRenderTileInfo* rti = GetRenderTileInfo();
+    if (rti->nGridSizeX > 1.0f || rti->nGridSizeY > 1.0f)
+    {
+        // The tile size includes a transition border around it. This has all been pre-calculated by
+        // the code that sets up the tiling.
+        float halfTileWidth = (orthoWidth / rti->nGridSizeX) * 0.5f;
+        float halfTileHeight = (orthoHeight / rti->nGridSizeY) * 0.5f;
+
+        // This is the normalized offset from the center of the (non-tiled) viewport to the center of the tile.
+        // Again the numbers in the struct have been pre-calculated to make setting a 3D matrix easier.
+        float normalizedOffsetX = (rti->nGridSizeX - 1.f) - rti->nPosX * 2.0f;
+        float normalizedOffsetY = (rti->nGridSizeY - 1.f) - rti->nPosY * 2.0f;
+
+        // calculate the midpoint of this tile
+        float midX = (orthoWidth * 0.5f) + (halfTileWidth * normalizedOffsetX);
+        float midY = (orthoHeight * 0.5f) + (halfTileHeight * normalizedOffsetY);
+
+        left = midX - halfTileWidth;
+        right = midX + halfTileWidth;
+        top = midY - halfTileHeight;
+        bottom = midY + halfTileHeight;
+    }
+
+    mathMatrixOrthoOffCenterLH(m, left, right, bottom, top, znear, zfar);
+
+    if (m_RP.m_TI[nThreadID].m_PersFlags & RBPF_REVERSE_DEPTH)
+    {
+        (*m) = ReverseDepthHelper::Convert(*m);
+    }
+#if defined(ENABLE_RENDER_AUX_GEOM)
+    if (m_pRenderAuxGeomD3D)
+    {
+        m_pRenderAuxGeomD3D->SetOrthoMode(true, m);
+    }
+#endif
+
+    backupMatrices.m_viewMatrix = m_RP.m_TI[nThreadID].m_matView;
+    m = &m_RP.m_TI[nThreadID].m_matView;
+    m_RP.m_TI[nThreadID].m_matView.SetIdentity();
+
     EF_SetCameraInfo();
 }
 
@@ -7692,7 +7822,7 @@ void CD3D9Renderer::DebugShowRenderTarget()
     for (size_t i = 0; i < min(m_showRenderTargetInfo.rtList.size(), col2); ++i)
     {
         CTexture* pTex = CTexture::GetByID(m_showRenderTargetInfo.rtList[i].textureID);
-        if (nullptr == pTex)
+        if (!pTex)
         {
             continue;
         }
@@ -7725,7 +7855,7 @@ void CD3D9Renderer::DebugShowRenderTarget()
     for (size_t i = 0; i < min(m_showRenderTargetInfo.rtList.size(), col2); ++i)
     {
         CTexture* pTex = CTexture::GetByID(m_showRenderTargetInfo.rtList[i].textureID);
-        if (nullptr == pTex)
+        if (!pTex)
         {
             continue;
         }
@@ -7775,14 +7905,6 @@ public:
         case ESYSTEM_EVENT_LEVEL_LOAD_RESUME_GAME:
         case ESYSTEM_EVENT_LEVEL_LOAD_PREPARE:
         {
-            if (gRenDev)
-            {
-                if (gRenDev->m_pRT)
-                {
-                    gRenDev->m_pRT->RC_PrepareLevelTexStreaming();
-                    gRenDev->m_pRT->FlushAndWait();
-                }
-            }
         }
         break;
 
@@ -8008,7 +8130,11 @@ IHWMouseCursor* CD3D9Renderer::GetIHWMouseCursor()
 {
 #if defined(AZ_RESTRICTED_PLATFORM)
 #define AZ_RESTRICTED_SECTION DRIVERD3D_CPP_SECTION_16
-#include AZ_RESTRICTED_FILE(DriverD3D_cpp, AZ_RESTRICTED_PLATFORM)
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/DriverD3D_cpp_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/DriverD3D_cpp_provo.inl"
+    #endif
 #endif
 #if defined(AZ_RESTRICTED_SECTION_IMPLEMENTED)
 #undef AZ_RESTRICTED_SECTION_IMPLEMENTED

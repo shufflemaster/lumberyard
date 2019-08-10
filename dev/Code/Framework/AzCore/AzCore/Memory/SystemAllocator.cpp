@@ -111,9 +111,9 @@ SystemAllocator::Create(const Descriptor& desc)
         }
         heapDesc.m_subAllocator = desc.m_heap.m_subAllocator;
         heapDesc.m_isPoolAllocations = desc.m_heap.m_isPoolAllocations;
-        //[DFLY][lehmille@] - Fix SystemAllocator from growing in small chunks
+        // Fix SystemAllocator from growing in small chunks
         heapDesc.m_systemChunkSize = desc.m_heap.m_systemChunkSize;
-        //[DFLY][lehmille@] - end
+
 #elif defined(AZCORE_SYS_ALLOCATOR_MALLOC)
         MallocSchema::Descriptor heapDesc;
 #else
@@ -188,8 +188,7 @@ SystemAllocator::Destroy()
 #ifdef AZCORE_ENABLE_MEMORY_TRACKING
     if (m_records)
     {
-        // print what allocation we have.
-        m_records->EnumerateAllocations(Debug::PrintAllocationsCB(true, true));
+        // m_records is created and destroyed by the MemoryDriller. AllocationRecords' destructor will print non-freed allocations
         EBUS_EVENT(Debug::MemoryDrillerBus, UnregisterAllocator, this);
     }
 #endif

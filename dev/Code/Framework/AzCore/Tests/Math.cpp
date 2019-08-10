@@ -668,6 +668,14 @@ namespace UnitTest
         AZ_TEST_ASSERT(Vector3(1.0f, 2.0f, 0.0f).IsPerpendicular(Vector3(0.0f, 0.0f, 1.0f)));
         AZ_TEST_ASSERT(!Vector3(1.0f, 2.0f, 0.0f).IsPerpendicular(Vector3(0.0f, 1.0f, 1.0f)));
 
+        //GetOrthogonalVector
+        v1 = Vector3(1.0f, 2.0f, 3.0f);
+        v2 = v1.GetOrthogonalVector();
+        AZ_TEST_ASSERT(v1.IsPerpendicular(v2));
+        v1 = Vector3::CreateAxisX();
+        v2 = v1.GetOrthogonalVector();
+        AZ_TEST_ASSERT(v1.IsPerpendicular(v2));
+
         //Project
         v1.Set(0.5f, 0.5f, 0.5f);
         v1.Project(Vector3(0.0f, 2.0f, 1.0f));
@@ -5314,12 +5322,6 @@ namespace UnitTest
 
     TEST_F(MATH_SfmtTest, TestParallel32)
     {
-#if defined(AZ_PLATFORM_APPLE_OSX)
-        // This test blocks the execution on Mac, forcing to fail until it gets properly fixed.
-        EXPECT_TRUE(false);
-        return;
-#endif
-
         Sfmt sfmt;
         auto threadFunc = [&sfmt]()
             {
@@ -5342,12 +5344,6 @@ namespace UnitTest
 
     TEST_F(MATH_SfmtTest, TestParallel64)
     {
-#if defined(AZ_PLATFORM_APPLE_OSX)
-        // This test blocks the execution on Mac, forcing to fail until it gets properly fixed.
-        EXPECT_TRUE(false);
-        return;
-#endif
-
         Sfmt sfmt;
         auto threadFunc = [&sfmt]()
             {
@@ -5370,12 +5366,6 @@ namespace UnitTest
 
     TEST_F(MATH_SfmtTest, TestParallelInterleaved)
     {
-#if defined(AZ_PLATFORM_APPLE_OSX)
-        // This test blocks the execution on Mac, forcing to fail until it gets properly fixed.
-        EXPECT_TRUE(false);
-        return;
-#endif
-
         Sfmt sfmt;
         auto threadFunc = [&sfmt]()
             {

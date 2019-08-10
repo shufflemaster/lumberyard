@@ -13,6 +13,9 @@
 
 // Description : Linux/Mac port support for Win32API calls
 
+#include<AzCore/PlatformDef.h>
+
+#if !defined(AZ_COMPILER_MSVC)
 
 #include "platform.h" // Note: This should be first to get consistent debugging definitions
 
@@ -30,7 +33,11 @@
 
 #if defined(AZ_RESTRICTED_PLATFORM)
 #define AZ_RESTRICTED_SECTION WINBASE_CPP_SECTION_1
-#include AZ_RESTRICTED_FILE(WinBase_cpp, AZ_RESTRICTED_PLATFORM)
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/WinBase_cpp_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/WinBase_cpp_provo.inl"
+    #endif
 #endif
 #if defined(AZ_RESTRICTED_SECTION_IMPLEMENTED)
 #undef AZ_RESTRICTED_SECTION_IMPLEMENTED
@@ -438,7 +445,11 @@ long long _atoi64(const char* str)
 
 #if defined(AZ_RESTRICTED_PLATFORM)
 #define AZ_RESTRICTED_SECTION WINBASE_CPP_SECTION_2
-#include AZ_RESTRICTED_FILE(WinBase_cpp, AZ_RESTRICTED_PLATFORM)
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/WinBase_cpp_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/WinBase_cpp_provo.inl"
+    #endif
 #endif
 #if defined(AZ_RESTRICTED_SECTION_IMPLEMENTED)
 #undef AZ_RESTRICTED_SECTION_IMPLEMENTED
@@ -581,7 +592,11 @@ void GlobalMemoryStatus(LPMEMORYSTATUS lpmem)
     //not complete implementation
 #if defined(AZ_RESTRICTED_PLATFORM)
 #define AZ_RESTRICTED_SECTION WINBASE_CPP_SECTION_3
-#include AZ_RESTRICTED_FILE(WinBase_cpp, AZ_RESTRICTED_PLATFORM)
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/WinBase_cpp_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/WinBase_cpp_provo.inl"
+    #endif
 #endif
 #if defined(AZ_RESTRICTED_SECTION_IMPLEMENTED)
 #undef AZ_RESTRICTED_SECTION_IMPLEMENTED
@@ -916,7 +931,11 @@ static bool FixOnePathElement(char* path)
 //////////////////////////////////////////////////////////////////////////
 #if defined(AZ_RESTRICTED_PLATFORM)
 #define AZ_RESTRICTED_SECTION WINBASE_CPP_SECTION_4
-#include AZ_RESTRICTED_FILE(WinBase_cpp, AZ_RESTRICTED_PLATFORM)
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/WinBase_cpp_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/WinBase_cpp_provo.inl"
+    #endif
 #endif
 #if defined(AZ_RESTRICTED_SECTION_IMPLEMENTED)
 #undef AZ_RESTRICTED_SECTION_IMPLEMENTED
@@ -964,7 +983,11 @@ DWORD Sleep(DWORD dwMilliseconds)
 #define AZ_RESTRICTED_SECTION_IMPLEMENTED
 #elif defined(AZ_RESTRICTED_PLATFORM)
 #define AZ_RESTRICTED_SECTION WINBASE_CPP_SECTION_5
-#include AZ_RESTRICTED_FILE(WinBase_cpp, AZ_RESTRICTED_PLATFORM)
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/WinBase_cpp_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/WinBase_cpp_provo.inl"
+    #endif
 #endif
 #if defined(AZ_RESTRICTED_SECTION_IMPLEMENTED)
 #undef AZ_RESTRICTED_SECTION_IMPLEMENTED
@@ -1136,7 +1159,11 @@ void CryLowLatencySleep(unsigned int dwMilliseconds)
 {
 #if defined(AZ_RESTRICTED_PLATFORM)
 #define AZ_RESTRICTED_SECTION WINBASE_CPP_SECTION_6
-#include AZ_RESTRICTED_FILE(WinBase_cpp, AZ_RESTRICTED_PLATFORM)
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/WinBase_cpp_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/WinBase_cpp_provo.inl"
+    #endif
 #endif
 #if defined(AZ_RESTRICTED_SECTION_IMPLEMENTED)
 #undef AZ_RESTRICTED_SECTION_IMPLEMENTED
@@ -1678,3 +1705,5 @@ __finddata64_t::~__finddata64_t()
     }
 }
 #endif //defined(APPLE) || defined(LINUX)
+
+#endif // !defined(AZ_COMPILER_MSVC)

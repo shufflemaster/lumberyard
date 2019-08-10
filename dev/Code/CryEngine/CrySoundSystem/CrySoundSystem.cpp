@@ -37,7 +37,11 @@
 
 #if defined(AZ_RESTRICTED_PLATFORM)
 #define AZ_RESTRICTED_SECTION CRYSOUNDSYSTEM_CPP_SECTION_1
-#include AZ_RESTRICTED_FILE(CrySoundSystem_cpp, AZ_RESTRICTED_PLATFORM)
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/CrySoundSystem_cpp_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/CrySoundSystem_cpp_provo.inl"
+    #endif
 #endif
 
 namespace Audio
@@ -212,7 +216,11 @@ class CEngineModule_CrySoundSystem
         {
 #if defined(AZ_RESTRICTED_PLATFORM)
 #define AZ_RESTRICTED_SECTION CRYSOUNDSYSTEM_CPP_SECTION_2
-#include AZ_RESTRICTED_FILE(CrySoundSystem_cpp, AZ_RESTRICTED_PLATFORM)
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/CrySoundSystem_cpp_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/CrySoundSystem_cpp_provo.inl"
+    #endif
 #endif
 
             g_audioLogger.Log(eALT_ALWAYS, "%s loaded!", GetName());
@@ -254,11 +262,15 @@ CEngineModule_CrySoundSystem::CEngineModule_CrySoundSystem()
 {
 #if defined(AZ_RESTRICTED_PLATFORM)
 #define AZ_RESTRICTED_SECTION CRYSOUNDSYSTEM_CPP_SECTION_3
-#include AZ_RESTRICTED_FILE(CrySoundSystem_cpp, AZ_RESTRICTED_PLATFORM)
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/CrySoundSystem_cpp_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/CrySoundSystem_cpp_provo.inl"
+    #endif
 #else
 #define CRYSOUNDSYSTEM_CPP_TRAIT_DISABLE_AUDIO 0
 #endif
-#if CRYSOUNDSYSTEM_CPP_TRAIT_DISABLE_AUDIO || defined(AZ_TESTS_ENABLED)
+#if CRYSOUNDSYSTEM_CPP_TRAIT_DISABLE_AUDIO
     #define DEFAULT_AUDIO_SYSTEM_IMPLEMENTATION_NAME    "CryAudioImplNoSound"
 #else
     #define DEFAULT_AUDIO_SYSTEM_IMPLEMENTATION_NAME    "CryAudioImplWwise"

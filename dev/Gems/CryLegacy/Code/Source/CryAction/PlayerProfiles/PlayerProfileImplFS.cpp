@@ -30,7 +30,11 @@
 #include "Serialization/XMLCPBin/XMLCPB_Utils.h"
 
 #if defined(AZ_RESTRICTED_PLATFORM)
-#include AZ_RESTRICTED_FILE(PlayerProfileImplFS_cpp, AZ_RESTRICTED_PLATFORM)
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/PlayerProfileImplFS_cpp_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/PlayerProfileImplFS_cpp_provo.inl"
+    #endif
 #endif
 
 using namespace PlayerProfileImpl;
@@ -495,7 +499,7 @@ bool CPlayerProfileImplFSDir::LoginUser(SUserEntry* pEntry)
     string search = path + "/*.*";
 
     IPlatformOS* pOS = GetISystem()->GetPlatformOS();
-    IPlatformOS::IFileFinderPtr fileFinder = pOS->GetFileFinder(IPlatformOS::Unknown_User);
+    IPlatformOS::IFileFinderPtr fileFinder = pOS->GetFileFinder(0);
     intptr_t handle = fileFinder->FindFirst(search.c_str(), &fd);
     if (handle != -1)
     {
@@ -780,7 +784,7 @@ bool CCommonSaveGameHelper::GetSaveGames(CPlayerProfileManager::SUserEntry* pEnt
     search.Format("%s/*%s", path.c_str(), LY_SAVEGAME_FILE_EXT);
 
     IPlatformOS* os = GetISystem()->GetPlatformOS();
-    IPlatformOS::IFileFinderPtr fileFinder = os->GetFileFinder(IPlatformOS::Unknown_User);
+    IPlatformOS::IFileFinderPtr fileFinder = os->GetFileFinder(0);
     _finddata_t fd;
     intptr_t handle = fileFinder->FindFirst(search.c_str(), &fd);
     if (handle != -1)

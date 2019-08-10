@@ -13,13 +13,15 @@
 #include "PropertyRowWidget.hxx"
 #include "PropertyQTConstants.h"
 
-#include <AzQtComponents/Components/Widgets/ElidingLabel.h>
 #include <AzFramework/StringFunc/StringFunc.h>
+#include <AzToolsFramework/UI/UiCore/WidgetHelpers.h>
 #include <QtWidgets/QHBoxLayout>
 #include <QtWidgets/QWidget>
 #include <QtGui/QFontMetrics>
 #include <QtGui/QTextLayout>
 #include <QtGui/QPainter>
+
+#include <QMessageBox>
 
 namespace AzToolsFramework
 {
@@ -160,7 +162,7 @@ namespace AzToolsFramework
 
     void PropertyRowWidget::createContainerButtons()
     {
-        static QIcon s_iconClear(":/PropertyEditor/Resources/cross-circle-small.png");
+        static QIcon s_iconClear(":/PropertyEditor/Resources/trash-small.png");
         static QIcon s_iconAdd(":/PropertyEditor/Resources/list-add-small.png");
 
         if (!m_containerClearButton)
@@ -219,8 +221,6 @@ namespace AzToolsFramework
 
         if (dataNode)
         {
-            AZ_Assert(dataNode->GetClassMetadata(), "Missing class data from data node.");
-
             actualName = GetNodeDisplayName(*dataNode);
         }
 
@@ -238,11 +238,11 @@ namespace AzToolsFramework
         m_isFixedSizeOrSmartPtrContainer = false;
         m_containerSize = 0;
 
-        auto* container = dataNode ? dataNode->GetClassMetadata()->m_container : nullptr;
+        auto* container = (dataNode && dataNode->GetClassMetadata()) ? dataNode->GetClassMetadata()->m_container : nullptr;
         if (container)
         {
             m_isContainer = true;
-            m_containerEditable = true;
+            m_containerEditable = !container->IsFixedSize() || container->IsSmartPointer();
             m_isFixedSizeOrSmartPtrContainer = container->IsFixedSize() || container->IsSmartPointer();
 
             AZStd::size_t numElements = container->Size(dataNode->GetInstance(0));
@@ -262,13 +262,34 @@ namespace AzToolsFramework
 
         if (dataNode)
         {
-            const AZ::Uuid typeUuid = dataNode->GetClassMetadata()->m_typeId;
+            AZ::Uuid typeUuid = AZ::Uuid::CreateNull();
+            if (dataNode->GetClassMetadata())
+            {
+                typeUuid = dataNode->GetClassMetadata()->m_typeId;
+            }
 
             m_handlerName = AZ_CRC("Default", 0xe35e00df);
 
             if (dataNode->GetElementEditMetadata())
             {
                 m_handlerName = dataNode->GetElementEditMetadata()->m_elementId;
+            }
+
+            // If we're an enum type under the hood, our default handler should be the enum ComboBox handler
+            if (!m_handlerName || m_handlerName == AZ_CRC("Default", 0xe35e00df))
+            {
+                auto elementMetadata = dataNode->GetElementMetadata();
+                if (elementMetadata)
+                {
+                    for (const auto& attributePair : elementMetadata->m_attributes)
+                    {
+                        if (attributePair.first == AZ::Edit::InternalAttributes::EnumType)
+                        {
+                            m_handlerName = AZ::Edit::UIHandlers::ComboBox;
+                            break;
+                        }
+                    }
+                }
             }
 
             RefreshAttributesFromNode(true);
@@ -654,8 +675,16 @@ namespace AzToolsFramework
                 {
                     if (editData->m_attributes[i].second->m_describesChildren)
                     {
-                        PropertyAttributeReader reader(containerParentNode->FirstInstance(), editData->m_attributes[i].second);
-                        ConsumeAttribute(editData->m_attributes[i].first, reader, true);
+                        if (editData->m_attributes[i].second->m_childClassOwned)
+                        {
+                            PropertyAttributeReader reader(m_sourceNode->FirstInstance(), editData->m_attributes[i].second);
+                            ConsumeAttribute(editData->m_attributes[i].first, reader, true);
+                        }
+                        else
+                        {
+                            PropertyAttributeReader reader(containerParentNode->FirstInstance(), editData->m_attributes[i].second);
+                            ConsumeAttribute(editData->m_attributes[i].first, reader, true);
+                        }
                     }
                 }
             }
@@ -671,21 +700,32 @@ namespace AzToolsFramework
 
         if (m_sourceNode->GetElementMetadata())
         {
-            const AZ::Edit::ElementData* elementEdit = m_sourceNode->GetElementEditMetadata();
-            if (elementEdit)
+            auto consumeAttributes = [&](const auto& attributes)
             {
-                for (size_t i = 0; i < elementEdit->m_attributes.size(); ++i)
+                for (size_t i = 0; i < attributes.size(); ++i)
                 {
-                    const AZ::Edit::AttributePair& attrPair = elementEdit->m_attributes[i];
+                    const auto& attrPair = attributes[i];
 
                     if (attrPair.second->m_describesChildren)
                     {
                         continue;
                     }
 
-                    PropertyAttributeReader reader(m_sourceNode->GetParent()->FirstInstance(), attrPair.second);
+                    PropertyAttributeReader reader(m_sourceNode->GetParent()->FirstInstance(), &*attrPair.second);
                     ConsumeAttribute(attrPair.first, reader, initial, &newToolTip, &foundDescription);
                 }
+            };
+
+            const AZ::SerializeContext::ClassElement* element = m_sourceNode->GetElementMetadata();
+            if (element)
+            {
+                consumeAttributes(element->m_attributes);
+            }
+
+            const AZ::Edit::ElementData* elementEdit = m_sourceNode->GetElementEditMetadata();
+            if (elementEdit)
+            {
+                consumeAttributes(elementEdit->m_attributes);
 
                 if (!foundDescription && (elementEdit->m_description) && (strlen(elementEdit->m_description) > 0))
                 {
@@ -883,6 +923,11 @@ namespace AzToolsFramework
             m_autoExpand = true;
             reader.Read<bool>(m_autoExpand);
         }
+        else if (attributeName == AZ::Edit::Attributes::ForceAutoExpand)
+        {
+            m_forceAutoExpand = false; // Does not always expand by default
+            reader.Read<bool>(m_forceAutoExpand);
+        }
         // Attribute types you are NOT allowed to update at runtime
         else if ((initial) && (attributeName == AZ::Edit::Attributes::ContainerCanBeModified))
         {
@@ -1076,6 +1121,12 @@ namespace AzToolsFramework
         return m_forbidExpansion;
     }
 
+    bool PropertyRowWidget::ForceAutoExpand() const
+    {
+        AZ_Assert(m_initialized, "You may not call ForceAutoExpand on uninitialized rows.");
+        return m_forceAutoExpand;
+    }
+
     PropertyHandlerBase* PropertyRowWidget::GetHandler() const
     {
         AZ_Assert(m_initialized, "You may not call GetHandler on uninitialized rows.");
@@ -1094,7 +1145,7 @@ namespace AzToolsFramework
         }
     }
 
-    PropertyModificationRefreshLevel PropertyRowWidget::DoPropertyNotify()
+    PropertyModificationRefreshLevel PropertyRowWidget::DoPropertyNotify(size_t optionalIndex /*= 0*/)
     {
         // Notify from this node all the way up through parents recursively.
         // Maintain the highest level of requested refresh along the way.
@@ -1155,11 +1206,22 @@ namespace AzToolsFramework
                         }
                         else
                         {
-                            // Support invoking a void handler (doesn't return a refresh level).
-                            AZ::Edit::AttributeFunction<void()>* func = azdynamic_cast<AZ::Edit::AttributeFunction<void()>*>(reader.GetAttribute());
+                            // Support invoking a void handler (either taking no parameters or an index)
+                            // (doesn't return a refresh level)
+                            AZ::Edit::AttributeFunction<void()>* func =
+                                azdynamic_cast<AZ::Edit::AttributeFunction<void()>*>(reader.GetAttribute());
+                            AZ::Edit::AttributeFunction<void(size_t)>* funcWithIndex =
+                                azdynamic_cast<AZ::Edit::AttributeFunction<void(size_t)>*>(reader.GetAttribute());
+
                             if (func)
                             {
                                 func->Invoke(nodeToNotify->GetInstance(idx));
+                            }
+                            else if (funcWithIndex)
+                            {
+                                // if a function has been provided that takes an index, use this version
+                                // passing through the index of the element being modified
+                                funcWithIndex->Invoke(nodeToNotify->GetInstance(idx), optionalIndex);
                             }
                             else
                             {
@@ -1177,7 +1239,7 @@ namespace AzToolsFramework
 
         if (m_parentRow)
         {
-            return (PropertyModificationRefreshLevel)AZStd::GetMax((int)m_parentRow->DoPropertyNotify(), (int)level);
+            return (PropertyModificationRefreshLevel)AZStd::GetMax((int)m_parentRow->DoPropertyNotify(optionalIndex), (int)level);
         }
 
         return level;
@@ -1249,11 +1311,12 @@ namespace AzToolsFramework
                     for (size_t idx = 0; idx < nodeToNotify->GetNumInstances(); ++idx)
                     {
                         PropertyAttributeReader reader(nodeToNotify->GetInstance(idx), changeValidator.m_attribute);
-                        bool valid = true;
-                        if (reader.Read<bool>(valid, valueToValidate, valueType))
+                        AZ::Outcome<void, AZStd::string> outcome;
+                        if (reader.Read<AZ::Outcome<void, AZStd::string>>(outcome, valueToValidate, valueType))
                         {
-                            if (!valid)
+                            if (!outcome.IsSuccess())
                             {
+                                QMessageBox::warning(AzToolsFramework::GetActiveWindow(), "Invalid Assignment", outcome.GetError().c_str(), QMessageBox::Ok);
                                 return false;
                             }
                         }

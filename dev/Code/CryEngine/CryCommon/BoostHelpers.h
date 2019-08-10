@@ -18,7 +18,11 @@
 
 
 #if defined(AZ_RESTRICTED_PLATFORM)
-#include AZ_RESTRICTED_FILE(BoostHelpers_h, AZ_RESTRICTED_PLATFORM)
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/BoostHelpers_h_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/BoostHelpers_h_provo.inl"
+    #endif
 #endif
 
 #include <AzCore/PlatformDef.h>
@@ -106,6 +110,7 @@
 #include <boost/variant.hpp>
 #include <boost/mpl/vector.hpp>
 #include <boost/mpl/find.hpp>
+#include <boost/iterator/iterator_facade.hpp>
 #pragma warning(pop)
 #if defined(AZ_PLATFORM_WINDOWS) && defined(AZ_COMPILER_CLANG)
     #undef __FUNCSIG__
