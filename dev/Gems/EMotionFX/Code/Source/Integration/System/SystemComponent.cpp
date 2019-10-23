@@ -693,13 +693,16 @@ namespace EMotionFX
 
                             AZ::Transform currentTransform = entityTransform->GetWorldTM();
                             const AZ::Vector3 actorInstancePosition = actorInstance->GetWorldSpaceTransform().mPosition;
+                            const AZ::Vector3 positionDelta = actorInstancePosition - currentTransform.GetPosition();
 
-                            const AZ::Vector3 currentPos = currentTransform.GetPosition();
-                            const AZ::Vector3 positionDelta = actorInstancePosition - currentPos;
+                            //const AZ::Vector3 currentPos = currentTransform.GetPosition();
+                            //const AZ::Vector3 positionDelta = actorInstancePosition - currentPos;
 
                             if (hasPhysicsController)
                             {
                                 Physics::CharacterRequestBus::Event(entityId, &Physics::CharacterRequests::TryRelativeMove, positionDelta, timeDelta);
+                                //Fixed by hand by Galib
+                                currentTransform = entityTransform->GetWorldTM();
                             }
                             else if (hasCryPhysicsController)
                             {

@@ -119,6 +119,7 @@ namespace Camera
                 ->Event("SetNearClipDistance", &CameraRequestBus::Events::SetNearClipDistance)
                 ->Event("SetFarClipDistance", &CameraRequestBus::Events::SetFarClipDistance)
                 ->Event("MakeActiveView", &CameraRequestBus::Events::MakeActiveView)
+                ->Event("IsPointVisible", &CameraRequestBus::Events::IsPointVisible)
                 ->VirtualProperty("FieldOfView","GetFovDegrees","SetFovDegrees")
                 ->VirtualProperty("NearClipDistance", "GetNearClipDistance", "SetNearClipDistance")
                 ->VirtualProperty("FarClipDistance", "GetFarClipDistance", "SetFarClipDistance")
@@ -228,6 +229,15 @@ namespace Camera
         m_viewSystem->SetActiveView(m_view);
         UpdateCamera();
     }
+
+    //Lumbermixalot START
+    bool CameraComponent::IsPointVisible(const AZ::Vector3& point)
+    {
+        CCamera& camera = m_view->GetCamera();
+        return camera.IsPointVisible(AZVec3ToLYVec3(point));
+    }
+    //Lumbermixalot END
+
 
     void CameraComponent::OnTransformChanged(const AZ::Transform& /*local*/, const AZ::Transform& world)
     {

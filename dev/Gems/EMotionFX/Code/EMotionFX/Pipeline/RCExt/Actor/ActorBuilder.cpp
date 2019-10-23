@@ -427,6 +427,16 @@ namespace EMotionFX
                 }
             }
 
+            //LUMBERMIXALOT: Required To Support Blender Armatures START
+            //If the root node is not a root bone, skip it.
+            auto bone = azrtti_cast<const SceneDataTypes::IBoneData*>(it->second);
+            if (!bone)
+            {
+                AZ_TracePrintf(SceneUtil::WarningWindow, "Skipping root node because it is not a root bone.\n");
+                ++it;
+            }
+            //LUMBERMIXALOT: Required To Support Blender Armatures END
+
             for (; it != graphDownwardsRootBoneView.end(); ++it)
             {
                 const SceneContainers::SceneGraph::NodeIndex& nodeIndex = graph.ConvertToNodeIndex(it.GetHierarchyIterator());

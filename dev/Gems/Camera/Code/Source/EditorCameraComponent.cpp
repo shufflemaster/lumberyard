@@ -297,6 +297,14 @@ namespace Camera
         UpdateCamera();
     }
 
+    //Lumbermixalot START
+    bool EditorCameraComponent::IsPointVisible(const AZ::Vector3& point)
+    {
+        CCamera& camera = m_view->GetCamera();
+        return camera.IsPointVisible(AZVec3ToLYVec3(point));
+    }
+    //Lumbermixalot END
+
     void EditorCameraComponent::OnTransformChanged(const AZ::Transform& /*local*/, const AZ::Transform& world)
     {
         CCamera& camera = m_view->GetCamera();

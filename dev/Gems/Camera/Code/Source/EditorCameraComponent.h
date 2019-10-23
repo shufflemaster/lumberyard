@@ -71,6 +71,11 @@ namespace Camera
         void SetFrustumWidth(float width) override;
         void SetFrustumHeight(float height) override;
         void MakeActiveView() override;
+
+        //Lumbermixalot START
+        bool IsPointVisible(const AZ::Vector3& point) override;
+        //Lumbermixalot END
+
         //////////////////////////////////////////////////////////////////////////
 
         //////////////////////////////////////////////////////////////////////////

@@ -12,6 +12,7 @@
 #pragma once
 #include <AzCore/Component/ComponentBus.h>
 #include <AzCore/EBus/EBus.h>
+#include <AzCore/Math/Vector3.h> //Lumbermixalot
 
 namespace Camera
 {
@@ -122,6 +123,10 @@ namespace Camera
         * Makes the camera the active view
         */
         virtual void MakeActiveView() = 0;
+
+        //Lumbermixalot START
+        virtual bool IsPointVisible(const AZ::Vector3& point) = 0;
+        //Lumbermixalot END
     };
     using CameraRequestBus = AZ::EBus<CameraComponentRequests>;
 
