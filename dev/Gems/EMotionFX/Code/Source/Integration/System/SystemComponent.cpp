@@ -86,6 +86,7 @@
 #   include <Editor/Plugins/Cloth/ClothJointInspectorPlugin.h>
 #   include <Editor/Plugins/SimulatedObject/SimulatedObjectWidget.h>
 #   include <Source/Editor/PropertyWidgets/PropertyTypes.h>
+#   include <EMotionFX_Traits_Platform.h>
 #endif // EMOTIONFXANIMATION_EDITOR
 
 #include <ISystem.h>
@@ -93,8 +94,6 @@
 // include required AzCore headers
 #include <AzCore/IO/FileIO.h>
 #include <AzFramework/API/ApplicationAPI.h>
-
-#include <EMotionFX_Traits_Platform.h>
 
 namespace EMotionFX
 {
@@ -694,14 +693,11 @@ namespace EMotionFX
                             AZ::Transform currentTransform = entityTransform->GetWorldTM();
                             const AZ::Vector3 actorInstancePosition = actorInstance->GetWorldSpaceTransform().mPosition;
                             const AZ::Vector3 positionDelta = actorInstancePosition - currentTransform.GetPosition();
-
-                            //const AZ::Vector3 currentPos = currentTransform.GetPosition();
-                            //const AZ::Vector3 positionDelta = actorInstancePosition - currentPos;
-
                             if (hasPhysicsController)
                             {
                                 Physics::CharacterRequestBus::Event(entityId, &Physics::CharacterRequests::TryRelativeMove, positionDelta, timeDelta);
-                                //Fixed by hand by Galib
+                                // Some of the character controller implementations like the PhysX one directly adjust the entity position and are not
+                                // delaying the calculation until the next physics system update. Thus, we will need to get the updated current transform.
                                 currentTransform = entityTransform->GetWorldTM();
                             }
                             else if (hasCryPhysicsController)
@@ -797,7 +793,7 @@ namespace EMotionFX
 
             // Cast the ray in the physics system.
             Physics::RayCastHit physicsRayResult;
-            Physics::WorldRequestBus::EventResult(physicsRayResult, AZ_CRC("AZPhysicalWorld", 0x18f33e24), &Physics::WorldRequests::RayCast, physicsRayRequest);
+            Physics::WorldRequestBus::EventResult(physicsRayResult, Physics::DefaultPhysicsWorldId, &Physics::WorldRequests::RayCast, physicsRayRequest);
             if (physicsRayResult) // We intersected.
             {
                 rayResult.m_position    = physicsRayResult.m_position;
@@ -833,8 +829,9 @@ namespace EMotionFX
             pluginManager->RegisterPlugin(new EMotionFX::HitDetectionJointInspectorPlugin());
             pluginManager->RegisterPlugin(new EMotionFX::SkeletonOutlinerPlugin());
             pluginManager->RegisterPlugin(new EMotionFX::RagdollNodeInspectorPlugin());
-            // Note: Cloth collider editor is disabled as it is in preview
+#ifdef EMOTIONFX_ENABLE_CLOTH
             pluginManager->RegisterPlugin(new EMotionFX::ClothJointInspectorPlugin());
+#endif
             pluginManager->RegisterPlugin(new EMotionFX::SimulatedObjectWidget());
         }
 

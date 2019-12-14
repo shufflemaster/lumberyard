@@ -32,6 +32,9 @@
 #include <AzToolsFramework/ToolsComponents/EditorOnlyEntityComponent.h>
 #include <AzToolsFramework/ToolsComponents/TransformComponent.h>
 #include <AzToolsFramework/UI/PropertyEditor/InstanceDataHierarchy.h>
+#include <AzToolsFramework/UI/UICore/WidgetHelpers.h>
+
+#include <QtWidgets/QMessageBox>
 
 namespace
 {
@@ -423,7 +426,18 @@ namespace AzToolsFramework
 
         childInfo.SetParent(parentId);
 
-        AZ::TransformBus::Event(childId, &AZ::TransformBus::Events::SetParent, parentId);
+        bool isDuringUndoRedo = false;
+        AzToolsFramework::ToolsApplicationRequestBus::BroadcastResult(isDuringUndoRedo, &AzToolsFramework::ToolsApplicationRequestBus::Events::IsDuringUndoRedo);
+        if (isDuringUndoRedo)
+        {
+            // Undoing the parent entity's transform will first delete the parent entity and then re-create it with its 
+            // old transform. Keep child entities' local transform so they stay put in their parent's space after undo actions.
+            AZ::TransformBus::Event(childId, &AZ::TransformBus::Events::SetParentRelative, parentId);
+        }
+        else
+        {
+            AZ::TransformBus::Event(childId, &AZ::TransformBus::Events::SetParent, parentId);
+        }
 
         //creating/pushing slices doesn't always destroy/de-register the original entity before adding the replacement
         if (!parentInfo.HasChild(childId))
@@ -726,6 +740,15 @@ namespace AzToolsFramework
         Reset();
     }
 
+    void EditorEntityModel::OnSliceInstantiationFailed(const AZ::Data::AssetId&, const AzFramework::SliceInstantiationTicket&)
+    {
+        QMessageBox::warning(AzToolsFramework::GetActiveWindow(),
+            QStringLiteral("Can't instantiate the selected slice"),
+            QString("The slice may contain UI elements that can't be instantiated in the main Lumberyard editor. "
+                "Use the UI Editor to instantiate this slice or select another one."),
+            QMessageBox::Ok);
+    }
+
     void EditorEntityModel::OnEntityStreamLoadBegin()
     {
         Reset();
@@ -918,6 +941,7 @@ namespace AzToolsFramework
         EditorLockComponentNotificationBus::Handler::BusConnect(m_entityId);
         EditorVisibilityNotificationBus::Handler::BusConnect(m_entityId);
         EntitySelectionEvents::Bus::Handler::BusConnect(m_entityId);
+        EditorEntityAPIBus::Handler::BusConnect(m_entityId);
         EditorEntityInfoRequestBus::Handler::BusConnect(m_entityId);
         EditorInspectorComponentNotificationBus::Handler::BusConnect(m_entityId);
         PropertyEditorEntityChangeNotificationBus::Handler::BusConnect(m_entityId);
@@ -940,6 +964,7 @@ namespace AzToolsFramework
         PropertyEditorEntityChangeNotificationBus::Handler::BusDisconnect();
         EditorInspectorComponentNotificationBus::Handler::BusDisconnect();
         EditorEntityInfoRequestBus::Handler::BusDisconnect();
+        EditorEntityAPIBus::Handler::BusDisconnect();
         EntitySelectionEvents::Bus::Handler::BusDisconnect();
         EditorVisibilityNotificationBus::Handler::BusDisconnect();
         EditorLockComponentNotificationBus::Handler::BusDisconnect();
@@ -1069,6 +1094,12 @@ namespace AzToolsFramework
     void EditorEntityModel::EditorEntityModelEntry::SetParent(AZ::EntityId parentId)
     {
         m_parentId = parentId;
+    }
+
+    void EditorEntityModel::EditorEntityModelEntry::SetName(AZStd::string name)
+    {
+        m_entity->SetName(name);
+        OnEntityNameChanged(name);
     }
 
     void EditorEntityModel::EditorEntityModelEntry::AddChild(AZ::EntityId childId)
