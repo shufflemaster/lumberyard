@@ -59,7 +59,8 @@ namespace LmbrCentral
             behaviorContext->EBus<AttachmentComponentRequestBus>("AttachmentComponentRequestBus")
                 ->Event("Attach", &AttachmentComponentRequestBus::Events::Attach)
                 ->Event("Detach", &AttachmentComponentRequestBus::Events::Detach)
-                ->Event("SetAttachmentOffset", &AttachmentComponentRequestBus::Events::SetAttachmentOffset);
+                ->Event("SetAttachmentOffset", &AttachmentComponentRequestBus::Events::SetAttachmentOffset)
+                ->Event("GetTargetEntityId", &AttachmentComponentRequestBus::Events::GetTargetEntityId);
 
             behaviorContext->EBus<AttachmentComponentNotificationBus>("AttachmentComponentNotificationBus")
                 ->Handler<BehaviorAttachmentComponentNotificationBusHandler>();
