@@ -60,7 +60,9 @@ namespace LmbrCentral
                 ->Event("Attach", &AttachmentComponentRequestBus::Events::Attach)
                 ->Event("Detach", &AttachmentComponentRequestBus::Events::Detach)
                 ->Event("SetAttachmentOffset", &AttachmentComponentRequestBus::Events::SetAttachmentOffset)
-                ->Event("GetTargetEntityId", &AttachmentComponentRequestBus::Events::GetTargetEntityId);
+                ->Event("GetTargetEntityId", &AttachmentComponentRequestBus::Events::GetTargetEntityId)
+                ->Event("GetJointName", &AttachmentComponentRequestBus::Events::GetJointName)
+                ->Event("GetAttachmentOffset", &AttachmentComponentRequestBus::Events::GetOffset);
 
             behaviorContext->EBus<AttachmentComponentNotificationBus>("AttachmentComponentNotificationBus")
                 ->Handler<BehaviorAttachmentComponentNotificationBusHandler>();
@@ -97,6 +99,9 @@ namespace LmbrCentral
 
         m_cachedOwnerTransform = AZ::Transform::CreateIdentity();
         EBUS_EVENT_ID_RESULT(m_cachedOwnerTransform, m_ownerId, AZ::TransformBus, GetWorldTM);
+
+        m_targetBoneName = configuration.m_targetBoneName;
+        m_targetOffset = configuration.m_targetOffset;
 
         if (configuration.m_attachedInitially)
         {
